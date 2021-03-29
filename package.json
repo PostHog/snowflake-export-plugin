@@ -1,0 +1,11 @@
+{
+    "name": "snowflake-export-plugin",
+    "version": "0.0.1",
+    "description": "Export PostHog events into SnowFlake",
+    "devDependencies": {
+        "@types/snowflake-sdk": "^1.5.1"
+    },
+    "dependencies": {
+        "snowflake-sdk": "^1.6.0"
+    }
+}

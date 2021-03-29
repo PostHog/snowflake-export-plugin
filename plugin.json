@@ -1,0 +1,47 @@
+{
+    "name": "SnowFlake Export Plugin",
+    "url": "https://github.com/posthog/snowflake-export-plugin",
+    "description": "Export PostHog events into SnowFlake",
+    "main": "index.js",
+    "config": [
+        {
+            "key": "account",
+            "name": "Account",
+            "type": "string",
+            "hint": "In the format of \"ab12345\" or \"ab12345.region.cloud\"",
+            "required": true
+        },
+        {
+            "key": "username",
+            "name": "Username",
+            "type": "string",
+            "required": true
+        },
+        {
+            "key": "password",
+            "name": "Password",
+            "type": "string",
+            "required": true
+        },
+        {
+            "key": "database",
+            "name": "Database",
+            "type": "string",
+            "required": true
+        },
+        {
+            "key": "dbschema",
+            "name": "DB Schema",
+            "type": "string",
+            "default": "PUBLIC",
+            "required": true
+        },
+        {
+            "key": "table",
+            "name": "DB Table",
+            "type": "string",
+            "required": true,
+            "hint": "Will be created if doesn't already exist."
+        }
+    ]
+}

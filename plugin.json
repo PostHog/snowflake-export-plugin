@@ -49,7 +49,6 @@
             "name": "Events to ignore",
             "type": "string",
             "default": "$snapshot, $feature_flag_called",
-            "required": true,
             "hint": "Comma separated list of events to ignore"
         }
     ]

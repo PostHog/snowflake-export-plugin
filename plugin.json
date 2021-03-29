@@ -21,7 +21,8 @@
             "key": "password",
             "name": "Password",
             "type": "string",
-            "required": true
+            "required": true,
+            "secret": true
         },
         {
             "key": "database",

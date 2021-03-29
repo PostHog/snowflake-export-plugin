@@ -43,6 +43,14 @@
             "type": "string",
             "required": true,
             "hint": "Will be created if doesn't already exist."
+        },
+        {
+            "key": "eventsToIgnore",
+            "name": "Events to ignore",
+            "type": "string",
+            "default": "$snapshot, $feature_flag_called",
+            "required": true,
+            "hint": "Comma separated list of events to ignore"
         }
     ]
 }

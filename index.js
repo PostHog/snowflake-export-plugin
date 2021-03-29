@@ -67,11 +67,16 @@ async function setupPlugin({ global, config }) {
 
     global.connection = connection
     global.jsonFields = Object.fromEntries(tableSchema.filter(({ type }) => type === 'VARIANT').map(({ name }) => [name, true]))
+    global.eventsToIgnore = Object.fromEntries((config.eventsToIgnore || '').split(',').map((event) => [event.trim(), true]))
 }
 
 async function processEvent(oneEvent, { global, config }) {
     if (!global.connection) {
         throw new Error('No SnowFlake client connected!')
+    }
+
+    if (global.eventsToIgnore[oneEvent.event]) {
+        return oneEvent
     }
 
     const { event, properties, $set, $set_once, distinct_id, team_id, site_url, now, sent_at, uuid, ..._discard } = oneEvent

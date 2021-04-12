@@ -120,6 +120,7 @@ async function processEvent(oneEvent, { global, config }) {
                 console.error('Error inserting into SnowFlake: ' + err.message);
                 reject(err)
             }
+            resolve(rows)
         }
     }))
 

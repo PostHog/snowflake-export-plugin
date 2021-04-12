@@ -84,7 +84,9 @@ export async function setupPlugin({ global, config }) {
                 })
             )
         } finally {
-            await global.snowflakePool.release(snowflake)
+            if (snowflake) {
+                await global.snowflakePool.release(snowflake)
+            }
         }
     }
 

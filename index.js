@@ -1,6 +1,7 @@
 import snowflake from 'snowflake-sdk'
+import { createPool } from 'generic-pool'
 
-async function setupPlugin({ global, config }) {
+export async function setupPlugin({ global, config }) {
     if (!config.account) {
         throw new Error('Account not provided!')
     }
@@ -20,22 +21,72 @@ async function setupPlugin({ global, config }) {
         throw new Error('Table not provided!')
     }
 
-    const connection = snowflake.createConnection({
-        account: config.account,
-        username: config.username,
-        password: config.password
-    })
+    global.snowflakePool = createPool(
+        {
+            create: async () => {
+                const connection = snowflake.createConnection({
+                    account: config.account,
+                    username: config.username,
+                    password: config.password,
+                })
 
-    await new Promise((resolve, reject) => connection.connect(
-        (err, conn) => {
-            if (err) {
-                console.error('Unable to connect to SnowFlake: ' + err.message)
-                reject(err)
-            } else {
-                resolve(conn.getId())
-            }
+                await new Promise((resolve, reject) =>
+                    connection.connect((err, conn) => {
+                        if (err) {
+                            console.error('Unable to connect to SnowFlake: ' + err.message)
+                            reject(err)
+                        } else {
+                            resolve(conn.getId())
+                        }
+                    })
+                )
+
+                return connection
+            },
+            destroy: async (connection) => {
+                await new Promise((resolve, reject) =>
+                    connection.destroy(function (err, conn) {
+                        if (err) {
+                            console.error('Unable to disconnect: ' + err.message)
+                            reject(err)
+                        } else {
+                            resolve()
+                        }
+                    })
+                )
+            },
+        },
+        {
+            min: 1,
+            max: 2,
+            autostart: true,
         }
-    ))
+    )
+
+    global.snowflakeExecute = async ({ sqlText, binds, verbose = false }) => {
+        let snowflake
+        try {
+            snowflake = await global.snowflakePool.acquire()
+            return await new Promise((resolve, reject) =>
+                snowflake.execute({
+                    sqlText,
+                    binds,
+                    complete: function (err, stmt, rows) {
+                        if (err) {
+                            if (verbose) {
+                                console.error('Error executing SnowFlake query', { sqlText, error: err.message })
+                            }
+                            reject(err)
+                        } else {
+                            resolve(rows)
+                        }
+                    },
+                })
+            )
+        } finally {
+            await global.snowflakePool.release(snowflake)
+        }
+    }
 
     const tableSchema = [
         { name: 'uuid', type: 'STRING' },
@@ -53,25 +104,33 @@ async function setupPlugin({ global, config }) {
 
     const columns = tableSchema.map(({ name, type }) => `"${name.toUpperCase()}" ${type}`).join(', ')
 
-    await new Promise((resolve, reject) => connection.execute({
-        sqlText: `CREATE TABLE "${config.database}"."${config.dbschema}"."${config.table}" (${columns})`,
-        complete: function(err, stmt, rows) {
-            if (err && !err.message.includes('already exists')) {
-                console.error('Failed to execute statement due to the following error: ' + err.message);
-                reject(err)
-            } else {
-                resolve()
-            }
+    try {
+        await global.snowflakeExecute({
+            sqlText: `CREATE TABLE "${config.database}"."${config.dbschema}"."${config.table}" (${columns})`,
+        })
+    } catch (error) {
+        if (!error.message.includes('already exists')) {
+            throw error
         }
-    }))
+    }
 
-    global.connection = connection
-    global.jsonFields = Object.fromEntries(tableSchema.filter(({ type }) => type === 'VARIANT').map(({ name }) => [name, true]))
-    global.eventsToIgnore = Object.fromEntries((config.eventsToIgnore || '').split(',').map((event) => [event.trim(), true]))
+    global.jsonFields = Object.fromEntries(
+        tableSchema.filter(({ type }) => type === 'VARIANT').map(({ name }) => [name, true])
+    )
+    global.eventsToIgnore = Object.fromEntries(
+        (config.eventsToIgnore || '').split(',').map((event) => [event.trim(), true])
+    )
+
+    global.initDone = true
 }
 
-async function processEvent(oneEvent, { global, config }) {
-    if (!global.connection) {
+export async function teardownPlugin({ global }) {
+    await global.snowflakePool.drain()
+    await global.snowflakePool.clear()
+}
+
+export async function processEvent(oneEvent, { global, config }) {
+    if (!global.initDone) {
         throw new Error('No SnowFlake client connected!')
     }
 
@@ -79,7 +138,19 @@ async function processEvent(oneEvent, { global, config }) {
         return oneEvent
     }
 
-    const { event, properties, $set, $set_once, distinct_id, team_id, site_url, now, sent_at, uuid, ..._discard } = oneEvent
+    const {
+        event,
+        properties,
+        $set,
+        $set_once,
+        distinct_id,
+        team_id,
+        site_url,
+        now,
+        sent_at,
+        uuid,
+        ..._discard
+    } = oneEvent
     const ip = properties?.['$ip'] || oneEvent.ip
     const timestamp = oneEvent.timestamp || oneEvent.data?.timestamp || properties?.timestamp || now || sent_at
     let ingestedProperties = properties
@@ -108,22 +179,19 @@ async function processEvent(oneEvent, { global, config }) {
 
     let sqlText = ''
     sqlText += `INSERT INTO "${config.database}"."${config.dbschema}"."${config.table}"`
-    sqlText += `(${Object.keys(row).map(r => `"${r.toUpperCase()}"`).join(', ')})`
+    sqlText += `(${Object.keys(row)
+        .map((r) => `"${r.toUpperCase()}"`)
+        .join(', ')})`
     sqlText += ` SELECT `
-    sqlText += Object.keys(row).map((a, i) => global.jsonFields[a] ? `PARSE_JSON(?)` : `?`).join(', ')
+    sqlText += Object.keys(row)
+        .map((a, i) => (global.jsonFields[a] ? `PARSE_JSON(?)` : `?`))
+        .join(', ')
 
-    await new Promise((resolve, reject) => global.connection.execute({
+    await global.snowflakeExecute({
         sqlText,
         binds: Object.values(row),
-        complete: function(err, stmt, rows) {
-            if (err) {
-                console.error('Error inserting into SnowFlake: ' + err.message);
-                reject(err)
-                return
-            }
-            resolve(rows)
-        }
-    }))
+        verbose: true,
+    })
 
     return oneEvent
 }

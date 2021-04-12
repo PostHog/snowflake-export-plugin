@@ -3,9 +3,11 @@
     "version": "0.0.1",
     "description": "Export PostHog events into SnowFlake",
     "devDependencies": {
+        "@types/generic-pool": "^3.1.9",
         "@types/snowflake-sdk": "^1.5.1"
     },
     "dependencies": {
+        "generic-pool": "^3.7.8",
         "snowflake-sdk": "^1.6.0"
     }
 }

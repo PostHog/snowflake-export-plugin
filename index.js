@@ -1,3 +1,4 @@
+import { createBuffer } from '@posthog/plugin-contrib'
 import snowflake from 'snowflake-sdk'
 import { createPool } from 'generic-pool'
 
@@ -58,7 +59,7 @@ export async function setupPlugin({ global, config }) {
         },
         {
             min: 1,
-            max: 2,
+            max: 1,
             autostart: true,
         }
     )
@@ -123,10 +124,42 @@ export async function setupPlugin({ global, config }) {
         (config.eventsToIgnore || '').split(',').map((event) => [event.trim(), true])
     )
 
+    global.insertSqlText = ''
+    global.insertSqlText += `INSERT INTO "${config.database}"."${config.dbschema}"."${config.table}" `
+    global.insertSqlText += `(${tableSchema
+        .map((s) => s.name)
+        .map((r) => `"${r.toUpperCase()}"`)
+        .join(', ')})`
+    global.insertSqlText += ` SELECT `
+    global.insertSqlText += tableSchema
+        .map((s) => s.name)
+        .map((a, i) => (global.jsonFields[a] ? `PARSE_JSON(column${i + 1})` : `column${i + 1}`))
+        .map((a, i) => `${a} as c${i + 1}`)
+        .join(', ')
+    global.insertSqlText += ` FROM VALUES (${tableSchema.map((s) => `:${s.name}`).join(', ')}) as vals`
+
+    global.buffer = createBuffer({
+        limit: 100 * 1024, // 100 kb
+        timeoutSeconds: 10, // 10 seconds
+        onFlush: async (batch) => {
+            console.log(`Flushing batch of ${batch.length} events to SnowFlake`)
+            try {
+                await global.snowflakeExecute({
+                    sqlText: global.insertSqlText,
+                    binds: batch,
+                    verbose: true,
+                })
+            } catch (e) {
+                console.error(e)
+            }
+        },
+    })
+
     global.initDone = true
 }
 
 export async function teardownPlugin({ global }) {
+    global.buffer.flush()
     await global.snowflakePool.drain()
     await global.snowflakePool.clear()
 }
@@ -179,21 +212,8 @@ export async function processEvent(oneEvent, { global, config }) {
         timestamp,
     }
 
-    let sqlText = ''
-    sqlText += `INSERT INTO "${config.database}"."${config.dbschema}"."${config.table}"`
-    sqlText += `(${Object.keys(row)
-        .map((r) => `"${r.toUpperCase()}"`)
-        .join(', ')})`
-    sqlText += ` SELECT `
-    sqlText += Object.keys(row)
-        .map((a, i) => (global.jsonFields[a] ? `PARSE_JSON(?)` : `?`))
-        .join(', ')
-
-    await global.snowflakeExecute({
-        sqlText,
-        binds: Object.values(row),
-        verbose: true,
-    })
+    // add an approximate length, as we're not sure what will end up in the final SQL
+    global.buffer.add(row, JSON.stringify(row).length)
 
     return oneEvent
 }

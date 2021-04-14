@@ -34,6 +34,10 @@ POSTHOG_EXPORT__BUFFER_20210414-2100H_1d8b6717e83d8a27
 POSTHOG_EXPORT__BUFFER_20210414-2100H_ee47c16c7bffffa4
 ```
 
+## Authentication
+
+This plugin supports both private key and user/pass authentication.
+
 ## Questions?
 
 ### [Join the PostHog Users Slack community.](https://posthog.com/slack)

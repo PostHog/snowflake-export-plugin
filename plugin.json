@@ -50,6 +50,14 @@
             "type": "string",
             "default": "$snapshot, $feature_flag_called",
             "hint": "Comma separated list of events to ignore"
+        },
+        {
+            "key": "mergeFrequency",
+            "name": "Table Merge Frequency",
+            "type": "choice",
+            "choices": ["hour", "minute"],
+            "default": "hour",
+            "hint": "How often do we merge the temporary tables with the main export table. Once per hour (10 min past the hour) or once per minute (last 2 minutes excluded)"
         }
     ]
 }

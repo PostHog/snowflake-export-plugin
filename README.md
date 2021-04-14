@@ -34,13 +34,6 @@ POSTHOG_EXPORT__BUFFER_20210414-2100H_1d8b6717e83d8a27
 POSTHOG_EXPORT__BUFFER_20210414-2100H_ee47c16c7bffffa4
 ```
 
-## Memory Usage
-
-To vastly increase export throughput, this plugin batches events in memory before uploading them to Snowflake. Upload frequency (every 10 seconds by default) and maximum upload 
-size (100kb by default) can be configured when the plugin is installed.
-
-You should make sure to keep these numbers reasonable to avoid running out of memory on your server. Note that the values apply to **each** concurrent plugin server thread.
-
 ## Questions?
 
 ### [Join the PostHog Users Slack community.](https://posthog.com/slack)

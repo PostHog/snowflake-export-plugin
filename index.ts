@@ -1,8 +1,8 @@
 import { createBuffer } from '@posthog/plugin-contrib'
 import * as snowflake from 'snowflake-sdk'
 import { createPool, Pool } from 'generic-pool'
-import { randomBytes } from 'crypto'
-import { PluginEvent, PluginMeta } from '@posthog/plugin-scaffold'
+import { randomBytes, createPrivateKey } from 'crypto'
+import { PluginEvent, PluginMeta, PluginAttachment } from '@posthog/plugin-scaffold'
 import { Connection } from 'snowflake-sdk'
 
 interface SnowflakePluginMeta extends PluginMeta {
@@ -24,6 +24,9 @@ interface SnowflakePluginMeta extends PluginMeta {
         table: string
         eventsToIgnore: string
         mergeFrequency: MergeFrequency
+    }
+    attachments: {
+        privateKey: PluginAttachment
     }
 }
 
@@ -60,15 +63,21 @@ const temporaryTableColumns = tableSchema
 
 const jsonFields = new Set(tableSchema.filter(({ type }) => type === 'VARIANT').map(({ name }) => name))
 
-function verifyConfig(config: SnowflakePluginMeta['config']) {
+function verifyConfig(meta: SnowflakePluginMeta) {
+    const { config, attachments } = meta
     if (!config.account) {
         throw new Error('Account not provided!')
     }
     if (!config.username) {
         throw new Error('Username not provided!')
     }
-    if (!config.password) {
-        throw new Error('Password not provided!')
+    if (!config.password && !attachments.privateKey) {
+        throw new Error('Password and private key both not provided!')
+    }
+    try {
+        attachments.privateKey ? getPrivateKey(meta) : null
+    } catch {
+        throw new Error('Invalid password for private key!')
     }
     if (!config.database) {
         throw new Error('Database not provided!')
@@ -81,15 +90,37 @@ function verifyConfig(config: SnowflakePluginMeta['config']) {
     }
 }
 
-function createSnowflakeConnectionPool(config: SnowflakePluginMeta['config']) {
+function getPrivateKey({ config, attachments }: SnowflakePluginMeta) {
+    const privateKeyObject = createPrivateKey({
+        key: attachments.privateKey.contents.toString(),
+        format: 'pem',
+        ...((config.password || '').length > 0 ? { passphrase: config.password } : {}),
+    })
+    return privateKeyObject.export({
+        format: 'pem',
+        type: 'pkcs8',
+    })
+}
+
+function createSnowflakeConnectionPool(meta: SnowflakePluginMeta) {
+    const { config, attachments } = meta
     return createPool(
         {
             create: async () => {
+                const privateKey = attachments.privateKey ? getPrivateKey(meta) : null
                 const connection = snowflake.createConnection({
                     account: config.account,
                     username: config.username,
-                    password: config.password,
-                })
+                    ...(privateKey
+                        ? {
+                              authenticator: 'SNOWFLAKE_JWT',
+                              privateKey: privateKey,
+                              ...((config.password || '').length > 0 ? { privateKeyPass: config.password } : {}),
+                          }
+                        : {
+                              password: config.password,
+                          }),
+                } as any) // snowflake-sdk types don't have the private key fields even though they work
 
                 await new Promise((resolve, reject) =>
                     connection.connect((err, conn) => {
@@ -128,7 +159,6 @@ function createSnowflakeConnectionPool(config: SnowflakePluginMeta['config']) {
 
 function createSnowflakeExecute(snowflakePool: Pool<Connection>): SnowflakeExecute {
     return async ({ sqlText, binds, verbose = false }: SnowflakeExecuteParams): Promise<any[]> => {
-        console.log({ sqlText })
         const snowflake = await snowflakePool.acquire()
         try {
             return await new Promise((resolve, reject) =>
@@ -211,11 +241,11 @@ async function copyTemporaryToExport(
     })
 }
 
-export async function setupPlugin({ global, config }: SnowflakePluginMeta) {
-    verifyConfig(config)
+export async function setupPlugin(meta: SnowflakePluginMeta) {
+    const { global, config } = meta
 
     // get the connections
-    global.snowflakePool = createSnowflakeConnectionPool(config)
+    global.snowflakePool = createSnowflakeConnectionPool(meta)
     global.snowflakeExecute = createSnowflakeExecute(global.snowflakePool)
 
     // create default table
@@ -245,7 +275,6 @@ export async function setupPlugin({ global, config }: SnowflakePluginMeta) {
         timeoutSeconds: 10, // 10 seconds
         onFlush: async (batch) => {
             console.log(`Flushing batch of ${batch.length} events to SnowFlake`)
-            console.log(`temporaryTable: ${global.temporaryTable}, uniqueTime: ${global.uniqueTime}`)
 
             const date = new Date()
             if (!global.temporaryTable || global.uniqueTime !== getCurrentUniqueTime(date, config.mergeFrequency)) {

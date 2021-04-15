@@ -1,7 +1,7 @@
 import { createBuffer } from '@posthog/plugin-contrib'
 import * as snowflake from 'snowflake-sdk'
 import { createPool, Pool } from 'generic-pool'
-import { randomBytes, createPrivateKey } from 'crypto'
+import { randomBytes } from 'crypto'
 import { PluginEvent, PluginMeta, PluginAttachment } from '@posthog/plugin-scaffold'
 import { Connection } from 'snowflake-sdk'
 
@@ -24,9 +24,6 @@ interface SnowflakePluginMeta extends PluginMeta {
         table: string
         eventsToIgnore: string
         mergeFrequency: MergeFrequency
-    }
-    attachments: {
-        privateKey: PluginAttachment
     }
 }
 
@@ -63,21 +60,15 @@ const temporaryTableColumns = tableSchema
 
 const jsonFields = new Set(tableSchema.filter(({ type }) => type === 'VARIANT').map(({ name }) => name))
 
-function verifyConfig(meta: SnowflakePluginMeta) {
-    const { config, attachments } = meta
+function verifyConfig({ config }: SnowflakePluginMeta) {
     if (!config.account) {
         throw new Error('Account not provided!')
     }
     if (!config.username) {
         throw new Error('Username not provided!')
     }
-    if (!config.password && !attachments.privateKey) {
-        throw new Error('Password and private key both not provided!')
-    }
-    try {
-        attachments.privateKey ? getPrivateKey(meta) : null
-    } catch {
-        throw new Error('Invalid password for private key!')
+    if (!config.password) {
+        throw new Error('Password not provided!')
     }
     if (!config.database) {
         throw new Error('Database not provided!')
@@ -90,42 +81,15 @@ function verifyConfig(meta: SnowflakePluginMeta) {
     }
 }
 
-function getPrivateKey({ config, attachments }: SnowflakePluginMeta) {
-    // Had to disable private key support, as anyone uploading "lol.pdf" would
-    // cause openssl to burn CPU and halt the server. Will need to work out a proper
-    // attachment sanitization system. Temporarily disabled until then.
-    throw new Error('Private key support temporarily disabled')
-
-    const privateKeyObject = createPrivateKey({
-        key: attachments.privateKey.contents.toString(),
-        format: 'pem',
-        ...((config.password || '').length > 0 ? { passphrase: config.password } : {}),
-    })
-    return privateKeyObject.export({
-        format: 'pem',
-        type: 'pkcs8',
-    })
-}
-
-function createSnowflakeConnectionPool(meta: SnowflakePluginMeta) {
-    const { config, attachments } = meta
+function createSnowflakeConnectionPool({ config }: SnowflakePluginMeta) {
     return createPool(
         {
             create: async () => {
-                const privateKey = attachments.privateKey ? getPrivateKey(meta) : null
                 const connection = snowflake.createConnection({
                     account: config.account,
                     username: config.username,
-                    ...(privateKey
-                        ? {
-                              authenticator: 'SNOWFLAKE_JWT',
-                              privateKey: privateKey,
-                              ...((config.password || '').length > 0 ? { privateKeyPass: config.password } : {}),
-                          }
-                        : {
-                              password: config.password,
-                          }),
-                } as any) // snowflake-sdk types don't have the private key fields even though they work
+                    password: config.password,
+                })
 
                 await new Promise((resolve, reject) =>
                     connection.connect((err, conn) => {

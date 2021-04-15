@@ -36,7 +36,7 @@ POSTHOG_EXPORT__BUFFER_20210414-2100H_ee47c16c7bffffa4
 
 ## Authentication
 
-This plugin supports both private key and user/pass authentication.
+This plugin currently supports only user/pass authentication.
 
 ## Questions?
 

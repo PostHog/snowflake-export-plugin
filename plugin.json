@@ -19,20 +19,11 @@
             "required": true
         },
         {
-            "key": "privateKey",
-            "name": "Private Key",
-            "type": "attachment",
-            "required": false,
-            "secret": true,
-            "hint": "For key-based authentication, upload your private key here"
-        },
-        {
             "key": "password",
             "name": "Password",
             "type": "string",
             "required": false,
-            "secret": true,
-            "hint": "Specify your private key's password (only for key-based auth with encrypted keys) or your Snowflake user's password (only for user/pass auth)"
+            "secret": true
         },
         {
             "key": "database",

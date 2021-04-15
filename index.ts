@@ -91,6 +91,11 @@ function verifyConfig(meta: SnowflakePluginMeta) {
 }
 
 function getPrivateKey({ config, attachments }: SnowflakePluginMeta) {
+    // Had to disable private key support, as anyone uploading "lol.pdf" would
+    // cause openssl to burn CPU and halt the server. Will need to work out a proper
+    // attachment sanitization system. Temporarily disabled until then.
+    throw new Error('Private key support temporarily disabled')
+
     const privateKeyObject = createPrivateKey({
         key: attachments.privateKey.contents.toString(),
         format: 'pem',

@@ -1,9 +1,9 @@
 {
-    "name": "SnowFlake Export Plugin",
+    "name": "Snowflake Export Plugin",
     "url": "https://github.com/posthog/snowflake-export-plugin",
-    "description": "Export PostHog events into SnowFlake",
+    "description": "Export PostHog events into Snowflake",
     "main": "index.ts",
-    "posthogVersion": ">= 1.24.0",
+    "posthogVersion": ">= 1.26.0",
     "config": [
         {
             "key": "account",

@@ -3,7 +3,7 @@
     "url": "https://github.com/posthog/snowflake-export-plugin",
     "description": "Export PostHog events into Snowflake",
     "main": "index.ts",
-    "posthogVersion": ">= 1.26.0",
+    "posthogVersion": ">=1.25.0",
     "config": [
         {
             "key": "account",
@@ -46,19 +46,18 @@
             "hint": "Will be created if doesn't already exist."
         },
         {
+            "key": "stage",
+            "name": "DB Stage",
+            "type": "string",
+            "required": true,
+            "hint": "Will be created if doesn't already exist."
+        },
+        {
             "key": "eventsToIgnore",
             "name": "Events to ignore",
             "type": "string",
             "default": "$snapshot, $feature_flag_called",
             "hint": "Comma separated list of events to ignore"
         },
-        {
-            "key": "mergeFrequency",
-            "name": "Table Merge Frequency",
-            "type": "choice",
-            "choices": ["hour", "minute"],
-            "default": "hour",
-            "hint": "How often do we merge the temporary tables with the main export table. Once per hour (10 min past the hour) or once per minute (last 2 minutes excluded)"
-        }
     ]
 }

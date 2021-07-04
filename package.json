@@ -10,5 +10,10 @@
         "@types/snowflake-sdk": "^1.5.1",
         "generic-pool": "^3.7.1",
         "snowflake-sdk": "^1.6.0"
+    },
+    "dependencies": {
+        "@types/node-fetch": "^2.5.10",
+        "aws-sdk": "^2.939.0",
+        "node-fetch": "^2.6.1"
     }
 }

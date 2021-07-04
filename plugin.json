@@ -59,5 +59,31 @@
             "default": "$snapshot, $feature_flag_called",
             "hint": "Comma separated list of events to ignore"
         },
+        {
+            "key": "s3BucketName",
+            "name": "S3 Bucket Name",
+            "type": "string"
+        },
+        {
+            "key": "awsAccessKeyId",
+            "name": "AWS Access Key ID",
+            "type": "string"
+        },
+        {
+            "key": "awsSecretAccessKey",
+            "name": "AWS Secret Access Key",
+            "type": "string"
+        },
+        {
+            "key": "awsRegion",
+            "name": "AWS Region",
+            "type": "string"
+        },
+        {
+            "key": "stageToUse",
+            "name": "AWS Region",
+            "type": "choice",
+            "choices": ["S3"]
+        }
     ]
 }

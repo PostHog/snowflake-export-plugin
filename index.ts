@@ -85,10 +85,10 @@ function transformEventToRow(fullEvent: PluginEvent): TableRow {
         site_url,
         timestamp,
         uuid: uuid!,
-        properties: JSON.stringify(ingestedProperties || ({} as Record<any, any>)),
-        elements: JSON.stringify(elements || ([] as Record<any, any>)),
-        people_set: JSON.stringify($set || ({} as Record<any, any>)),
-        people_set_once: JSON.stringify($set_once || ({} as Record<any, any>)),
+        properties: JSON.stringify(ingestedProperties || {}),
+        elements: JSON.stringify(elements || []),
+        people_set: JSON.stringify($set || {}),
+        people_set_once: JSON.stringify($set_once || {}),
     }
 }
 interface SnowflakeOptions {

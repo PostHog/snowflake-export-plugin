@@ -1,8 +1,6 @@
 import * as snowflake from 'snowflake-sdk'
 import { createPool, Pool } from 'generic-pool'
 import { PluginEvent, Plugin, RetryError } from '@posthog/plugin-scaffold'
-/* import crypto from 'crypto'
-import fetch from 'node-fetch' */
 import { randomBytes } from 'crypto'
 import { ManagedUpload } from 'aws-sdk/clients/s3'
 import { S3 } from 'aws-sdk'
@@ -12,8 +10,9 @@ interface SnowflakePluginInput {
         snowflake: Snowflake
         eventsToIgnore: Set<string>
         useS3: boolean
-        batchId: number
+        filesStagedForCopy: string[]
         batchEmpty: boolean
+        purgeEventsFromStage: boolean
     }
     config: {
         account: string
@@ -29,6 +28,7 @@ interface SnowflakePluginInput {
         awsSecretAccessKey: string
         awsRegion: string
         stageToUse: 'S3' | 'Google Cloud Storage'
+        purgeFromStage: 'Yes' | 'No'
     }
 }
 
@@ -85,17 +85,12 @@ function transformEventToRow(fullEvent: PluginEvent): TableRow {
         site_url,
         timestamp,
         uuid: uuid!,
-        properties: JSON.stringify(ingestedProperties || {} as Record<any, any>),
-        elements: JSON.stringify(elements || [] as Record<any, any>),
-        people_set: JSON.stringify($set || {}  as Record<any, any>),
-        people_set_once: JSON.stringify($set_once || {}  as Record<any, any>),
+        properties: JSON.stringify(ingestedProperties || ({} as Record<any, any>)),
+        elements: JSON.stringify(elements || ([] as Record<any, any>)),
+        people_set: JSON.stringify($set || ({} as Record<any, any>)),
+        people_set_once: JSON.stringify($set_once || ({} as Record<any, any>)),
     }
 }
-
-function generateBatchId() {
-    return Math.round(Math.random()*100000000)
-}
-
 interface SnowflakeOptions {
     account: string
     username: string
@@ -111,6 +106,11 @@ interface S3AuthOptions {
     awsSecretAccessKey: string
     bucketName: string
 }
+
+interface RetryCopyIntoJobPayload {
+    retriesPerformedSoFar: number
+    filesStagedForCopy: string[]
+}
 class Snowflake {
     private pool: Pool<snowflake.Connection>
     private s3connector: S3 | null
@@ -120,20 +120,11 @@ class Snowflake {
     stage: string
     s3Options: S3AuthOptions | null
 
-
-    constructor({
-        account,
-        username,
-        password,
-        database,
-        dbschema,
-        table,
-        stage,
-    }: SnowflakeOptions) {
+    constructor({ account, username, password, database, dbschema, table, stage }: SnowflakeOptions) {
         this.pool = this.createConnectionPool(account, username, password)
         this.s3connector = null
         this.database = database
-        this.dbschema= dbschema
+        this.dbschema = dbschema
         this.table = table
         this.stage = stage
         this.s3Options = null
@@ -144,7 +135,12 @@ class Snowflake {
         await this.pool.clear()
     }
 
-    public createS3Connector(awsAccessKeyId: string, awsSecretAccessKey: string, awsRegion: string, bucketName: string) {
+    public createS3Connector(
+        awsAccessKeyId: string,
+        awsSecretAccessKey: string,
+        awsRegion: string,
+        bucketName: string
+    ) {
         if (!awsAccessKeyId || !awsSecretAccessKey || !awsRegion || !bucketName) {
             throw new Error(
                 'You must provide an AWS Access Key ID, Secret Access Key, bucket name, and bucket region to use the S3 stage.'
@@ -158,13 +154,11 @@ class Snowflake {
         this.s3Options = {
             awsAccessKeyId,
             awsSecretAccessKey,
-            bucketName
+            bucketName,
         }
     }
 
-    public async createTableIfNotExists(
-    columns: string
-    ): Promise<void> {
+    public async createTableIfNotExists(columns: string): Promise<void> {
         await this.execute({
             sqlText: `CREATE TABLE IF NOT EXISTS "${this.database}"."${this.dbschema}"."${this.table}" (${columns})`,
         })
@@ -223,7 +217,7 @@ class Snowflake {
                         username,
                         password,
                         database: this.database,
-                        schema: this.dbschema
+                        schema: this.dbschema,
                     })
 
                     await new Promise<string>((resolve, reject) =>
@@ -272,10 +266,10 @@ class Snowflake {
         const dayTime = `${day.split('-').join('')}-${time.split(':').join('')}`
         const suffix = randomBytes(8).toString('hex')
 
+        let csvString =
+            'uuid,event,properties,elements,people_set,people_set_once,distinct_id,team_id,ip,site_url,timestamp\n'
 
-        let csvString = 'uuid,event,properties,elements,people_set,people_set_once,distinct_id,team_id,ip,site_url,timestamp\n'
-
-       for (let i = 0; i < events.length; ++i) {
+        for (let i = 0; i < events.length; ++i) {
             const {
                 uuid,
                 event,
@@ -294,12 +288,12 @@ class Snowflake {
             // order is important
             csvString += `${uuid}${d}${event}${d}${properties}${d}${elements}${d}${people_set}${d}${people_set_once}${d}${distinct_id}${d}${team_id}${d}${ip}${d}${site_url}${d}${timestamp}`
 
-            if (i !== (events.length - 1)) {
+            if (i !== events.length - 1) {
                 csvString += '\n'
             }
-       }
-        
-       const fileName = `${global.batchId}-snowflake-export-${day}-${dayTime}-${suffix}.csv`
+        }
+
+        const fileName = `snowflake-export-${day}-${dayTime}-${suffix}.csv`
 
         const params = {
             Bucket: config.s3BucketName,
@@ -320,13 +314,22 @@ class Snowflake {
                 resolve()
             })
         })
+        global.filesStagedForCopy.push(fileName)
     }
 
-    async copyIntoTableFromStage(batchId: number) {
+    async copyIntoTableFromStage(files: string[], purge = false) {
+        let filesList = ''
+        for (let i = 0; i < files.length; ++i) {
+            filesList += `'${files[i]}'`
+            if (i !== files.length-1) {
+                filesList += ','
+            }
+        }
         await this.execute({
             sqlText: `COPY INTO "${this.database}"."${this.dbschema}"."${this.table}"
             FROM @"${this.database}"."${this.dbschema}".${this.stage}
-            PATTERN='${batchId}-.*.csv';`,
+            FILES = ( ${filesList} )
+            PURGE = ${purge};`,
         })
     }
 }
@@ -334,34 +337,54 @@ class Snowflake {
 const exportTableColumns = TABLE_SCHEMA.map(({ name, type }) => `"${name.toUpperCase()}" ${type}`).join(', ')
 
 const snowflakePlugin: Plugin<SnowflakePluginInput> = {
+    jobs: {
+        retryCopyIntoSnowflake: async (payload: RetryCopyIntoJobPayload, { global, jobs }) => {
+            if (payload.retriesPerformedSoFar >= 15) {
+                return
+            }
+            try {
+                await global.snowflake.copyIntoTableFromStage(payload.filesStagedForCopy, global.purgeEventsFromStage)
+            } catch {
+                const nextRetrySeconds = 2 ** payload.retriesPerformedSoFar * 3
+                await jobs.retryCopyIntoSnowflake({ retriesPerformedSoFar: payload.retriesPerformedSoFar+1, filesStagedForCopy: payload.filesStagedForCopy }).runIn(nextRetrySeconds, 'seconds')
+                console.error(`Failed to copy ${String(payload.filesStagedForCopy)} from S3 into Snowflake. Retrying in ${nextRetrySeconds}s.`)
+            }
+        },
+    },
+
     async setupPlugin(meta) {
         const { global, config } = meta
         const { account, username, password, dbschema, table, stage, database } = config
         // Prepare for working with Snowflake
         global.snowflake = new Snowflake({
-            account, 
-            username, 
-            password, 
-            dbschema, 
-            table, 
-            stage, 
-            database 
+            account,
+            username,
+            password,
+            dbschema,
+            table,
+            stage,
+            database,
         })
 
         // Create table
-        await global.snowflake.createTableIfNotExists(
-            exportTableColumns
-        )
+        await global.snowflake.createTableIfNotExists(exportTableColumns)
+
+        global.purgeEventsFromStage = config.purgeFromStage === 'Yes'
 
         global.useS3 = config.stageToUse === 'S3'
         if (global.useS3) {
-            global.snowflake.createS3Connector(config.awsAccessKeyId, config.awsSecretAccessKey, config.awsRegion, config.s3BucketName)
+            global.snowflake.createS3Connector(
+                config.awsAccessKeyId,
+                config.awsSecretAccessKey,
+                config.awsRegion,
+                config.s3BucketName
+            )
         }
 
         // Create stage
         await global.snowflake.createStageIfNotExists()
 
-        global.batchId = generateBatchId()
+        global.filesStagedForCopy = []
         global.batchEmpty = true
 
         global.eventsToIgnore = new Set<string>((config.eventsToIgnore || '').split(',').map((event) => event.trim()))
@@ -391,28 +414,29 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
         }
     },
 
-    async runEveryMinute({ cache, global }) {
+    async runEveryMinute({ cache, global, jobs }) {
         if (global.batchEmpty) {
             return
         }
         const lastRun = await cache.get('lastRun', null)
-        const ONE_HOUR = 60*60*1000
+        const ONE_HOUR = 60 * 60 * 1000
         const timeNow = new Date().getTime()
-        if (
-            lastRun &&
-            timeNow - Number(lastRun) < ONE_HOUR 
-        ) {
+        if (lastRun && timeNow - Number(lastRun) < ONE_HOUR) {
             return
         }
         await cache.set('lastRun', timeNow)
         if (global.useS3) {
-            console.log(`Uploading batch ${global.batchId} from S3 to Snowflake`)
-            await global.snowflake.copyIntoTableFromStage(global.batchId)
-            global.batchId = generateBatchId()
-            global.batchEmpty = true
+            console.log(`Copying ${String(global.filesStagedForCopy)} from S3 into Snowflake`)
+            try {
+                await global.snowflake.copyIntoTableFromStage(global.filesStagedForCopy, global.purgeEventsFromStage)
+            } catch {
+                await jobs.retryCopyIntoSnowflake({ retriesPerformedSoFar: 0, filesStagedForCopy: global.filesStagedForCopy }).runIn(3, 'seconds')
+                console.error(`Failed to copy ${String(global.filesStagedForCopy)} from S3 into Snowflake. Retrying in 3s.`)
+            }
         }
-
-    }
+        global.filesStagedForCopy = []
+        global.batchEmpty = true
+    },
 }
 
 export default snowflakePlugin

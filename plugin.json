@@ -87,7 +87,7 @@
         },
         {
             "key": "purgeFromStage",
-            "name": "Purge events from stage?",
+            "name": "Purge events from stage after copying?",
             "type": "choice",
             "choices": ["No", "Yes"],          
             "default": "No"

@@ -1,43 +1,24 @@
 # SnowFlake Export Plugin
 
-Sends events to a SnowFlake on ingestion.
+Sends events to a SnowFlake instance on ingestion.
 
-## Installation
+## Installation Instructions
 
-1. Visit 'Plugins' in PostHog.
-1. Find this plugin from the repository or install `https://github.com/PostHog/snowflake-export-plugin`
-1. Configure the plugin by entering your database credentials and details.
-1. Watch events roll into SnowFlake.
+This plugin uses an external S3 stage to stage files that are copied into Snowflake every hour.
 
-## Temporary Tables
+This requires you to have an S3 bucket and an AWS user with the required permissions to access that bucket to use this plugin, in addition to your Snowflake credentials.
 
-Because Snowflake has a [20 concurrent write statement limit](https://community.snowflake.com/s/article/Your-statement-was-aborted-because-the-number-of-waiters-for-this-lock-exceeds-the-20-statements-limit) per table,
-we were forced to implement a workaround which creates temporary tables (one table per worker thread), uploads events to those tables
-and then periodically merges them back into the main export table.
+### AWS Configuration
 
-You can choose if this merging takes place every minute or every hour.
+1. Create a new S3 bucket **in the same AWS region** as your Snowflake instance
+2. Follow [this Snowflake guide](https://docs.snowflake.com/en/user-guide/data-load-s3-config-aws-iam-user.html) to configure AWS IAM User Credentials to Access Amazon S3. However, instead of doing step 3 yourself, input the AWS Key ID and Secret Key in the appropriate plugin configuration options. We'll take care of creating the stage for you.
 
-Your database might contain tables such as these:
 
-```bash
-# the table all exports end up in, specified in the plugin configuration
-POSTHOG_EXPORT
+### Snowflake Configuration
 
-# these tables will be merged every minute, skipping the last 2 minutes
-POSTHOG_EXPORT__BUFFER_20210414-2154M_2ce661b56754db70
-POSTHOG_EXPORT__BUFFER_20210414-2155M_35b6643368b6fde5
-POSTHOG_EXPORT__BUFFER_20210414-2153M_f5a7490365c98be4
-
-# these tables will be merged every hour, after the 10th minute of the hour
-POSTHOG_EXPORT__BUFFER_20210414-2100H_ee391940f27fe64a
-POSTHOG_EXPORT__BUFFER_20210414-2100H_1d8b6717e83d8a27
-POSTHOG_EXPORT__BUFFER_20210414-2100H_ee47c16c7bffffa4
-```
-
-## Authentication
-
-This plugin currently supports only user/pass authentication.
-
+1. [Create a new user in Snowflake](https://docs.snowflake.com/en/sql-reference/sql/create-user.html) that this plugin can use. Make sure it has appropriate permissions to create stages, as well as create, modify, and copy into a table in your desired database.
+2. Make sure you have a [Snowflake Warehouse](https://docs.snowflake.com/en/user-guide/warehouses-overview.html) set up. Warehouses are needed to perform `COPY INTO` statements. We recommend a warehouse that will start up automatically when needed.
+3. Fill in the configuration options with the user you just created, passing its username and password. For the Snowflake account ID, this can be found in your Snowflake URL. For example, if your URL is: `https://xxx11111.us-east-1.snowflakecomputing.com/`, your account ID will be `xxx11111.us-east-1`. You may also pass in the Cloud provider if that does not work e.g. `xxx11111.us-east-1.aws`.
 ## Questions?
 
 ### [Join the PostHog Users Slack community.](https://posthog.com/slack)

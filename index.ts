@@ -89,6 +89,10 @@ function transformEventToRow(fullEvent: PluginEvent): TableRow {
     }
 }
 
+function generateBatchId() {
+    return Math.round(Math.random()*100000000)
+}
+
 interface SnowflakeOptions {
     account: string
     username: string
@@ -175,12 +179,12 @@ class Snowflake {
                 throw new Error('S3 connector not initialized correctly.')
             }
             await this.execute({
-                sqlText: `CREATE STAGE IF NOT EXISTS "${this.database}"."${this.dbschema}"."${this.stage}"
+                sqlText: `CREATE OR REPLACE STAGE "${this.database}"."${this.dbschema}"."${this.stage}"
             URL='s3://${this.s3Options.bucketName}'
             FILE_FORMAT = ( TYPE = 'CSV' SKIP_HEADER = 1 )
             CREDENTIALS=(aws_key_id='${this.s3Options.awsAccessKeyId}' aws_secret_key='${this.s3Options.awsSecretAccessKey}')
             ENCRYPTION=(type='AWS_SSE_KMS' kms_key_id = 'aws/key')
-            COMMENT = 'S3 Stage used by the PostHog Snowflake export plugin'`,
+            COMMENT = 'S3 Stage used by the PostHog Snowflake export plugin';`,
             })
         }
     }
@@ -215,6 +219,8 @@ class Snowflake {
                         account,
                         username,
                         password,
+                        database: this.database,
+                        schema: this.dbschema
                     })
 
                     await new Promise<string>((resolve, reject) =>
@@ -264,9 +270,7 @@ class Snowflake {
         const suffix = randomBytes(8).toString('hex')
 
 
-        let csvString = ''
-
-       // events.map((event) => JSON.stringify(event)).join('\n')
+        let csvString = 'uuid,event,properties,elements,people_set,people_set_once,distinct_id,team_id,ip,site_url,timestamp\n'
 
        for (let i = 0; i < events.length; ++i) {
             const {
@@ -317,8 +321,8 @@ class Snowflake {
     async copyIntoTableFromStage(batchId: number) {
         await this.execute({
             sqlText: `COPY INTO "${this.database}"."${this.dbschema}"."${this.table}"
-            FROM @${this.database}.${this.dbschema}.${this.stage}
-            PATTERN='${batchId}-.*.csv'`,
+            FROM @"${this.database}"."${this.dbschema}".${this.stage}
+            PATTERN='${batchId}-.*.csv';`,
         })
     }
 }
@@ -353,7 +357,7 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
         // Create stage
         await global.snowflake.createStageIfNotExists()
 
-        global.batchId = Math.round(Math.random()*100000000)
+        global.batchId = generateBatchId()
 
         global.eventsToIgnore = new Set<string>((config.eventsToIgnore || '').split(',').map((event) => event.trim()))
     },
@@ -393,8 +397,9 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
         }
         await cache.set('lastRun', timeNow)
         if (global.useS3) {
-            await global.snowflake.copyIntoTableFromStage(global.batchId)
             console.log('Copying from S3 to Snowflake')
+            await global.snowflake.copyIntoTableFromStage(global.batchId)
+            global.batchId = generateBatchId()
         }
 
     }

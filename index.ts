@@ -179,7 +179,7 @@ class Snowflake {
                 throw new Error('S3 connector not initialized correctly.')
             }
             await this.execute({
-                sqlText: `CREATE OR REPLACE STAGE "${this.database}"."${this.dbschema}"."${this.stage}"
+                sqlText: `CREATE STAGE IF NOT EXISTS "${this.database}"."${this.dbschema}"."${this.stage}"
             URL='s3://${this.s3Options.bucketName}'
             FILE_FORMAT = ( TYPE = 'CSV' SKIP_HEADER = 1 )
             CREDENTIALS=(aws_key_id='${this.s3Options.awsAccessKeyId}' aws_secret_key='${this.s3Options.awsSecretAccessKey}')
@@ -295,7 +295,7 @@ class Snowflake {
             }
        }
         
-       const fileName = `${global.batchId}-snowflake-export-${day}/${dayTime}-${suffix}.csv`
+       const fileName = `${global.batchId}-snowflake-export-${day}-${dayTime}-${suffix}.csv`
 
         const params = {
             Bucket: config.s3BucketName,
@@ -393,7 +393,7 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
             lastRun &&
             timeNow - Number(lastRun) < ONE_HOUR 
         ) {
-            return
+            //return
         }
         await cache.set('lastRun', timeNow)
         if (global.useS3) {

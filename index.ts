@@ -13,6 +13,7 @@ interface SnowflakePluginInput {
         eventsToIgnore: Set<string>
         useS3: boolean
         batchId: number
+        batchEmpty: boolean
     }
     config: {
         account: string
@@ -48,16 +49,18 @@ interface TableRow {
 const TABLE_SCHEMA = [
     { name: 'uuid', type: 'STRING' },
     { name: 'event', type: 'STRING' },
-    { name: 'properties', type: 'OBJECT' },
-    { name: 'elements', type: 'OBJECT' },
-    { name: 'people_set', type: 'OBJECT' },
-    { name: 'people_set_once', type: 'OBJECT' },
+    { name: 'properties', type: 'VARIANT' },
+    { name: 'elements', type: 'VARIANT' },
+    { name: 'people_set', type: 'VARIANT' },
+    { name: 'people_set_once', type: 'VARIANT' },
     { name: 'distinct_id', type: 'STRING' },
     { name: 'team_id', type: 'INTEGER' },
     { name: 'ip', type: 'STRING' },
     { name: 'site_url', type: 'STRING' },
     { name: 'timestamp', type: 'TIMESTAMP' },
 ]
+
+const CSV_FIELD_DELIMITER = '|$|'
 
 function transformEventToRow(fullEvent: PluginEvent): TableRow {
     const { event, properties, $set, $set_once, distinct_id, team_id, site_url, now, sent_at, uuid, ...rest } =
@@ -75,17 +78,17 @@ function transformEventToRow(fullEvent: PluginEvent): TableRow {
     }
 
     return {
-        uuid: uuid!,
         event,
-        properties: JSON.stringify(ingestedProperties || {}),
-        elements: JSON.stringify(elements || []),
-        people_set: JSON.stringify($set || {}),
-        people_set_once: JSON.stringify($set_once || {}),
         distinct_id,
         team_id,
         ip,
         site_url,
         timestamp,
+        uuid: uuid!,
+        properties: JSON.stringify(ingestedProperties || {} as Record<any, any>),
+        elements: JSON.stringify(elements || [] as Record<any, any>),
+        people_set: JSON.stringify($set || {}  as Record<any, any>),
+        people_set_once: JSON.stringify($set_once || {}  as Record<any, any>),
     }
 }
 
@@ -181,7 +184,7 @@ class Snowflake {
             await this.execute({
                 sqlText: `CREATE STAGE IF NOT EXISTS "${this.database}"."${this.dbschema}"."${this.stage}"
             URL='s3://${this.s3Options.bucketName}'
-            FILE_FORMAT = ( TYPE = 'CSV' SKIP_HEADER = 1 )
+            FILE_FORMAT = ( TYPE = 'CSV' SKIP_HEADER = 1 FIELD_DELIMITER = '${CSV_FIELD_DELIMITER}' )
             CREDENTIALS=(aws_key_id='${this.s3Options.awsAccessKeyId}' aws_secret_key='${this.s3Options.awsSecretAccessKey}')
             ENCRYPTION=(type='AWS_SSE_KMS' kms_key_id = 'aws/key')
             COMMENT = 'S3 Stage used by the PostHog Snowflake export plugin';`,
@@ -287,8 +290,9 @@ class Snowflake {
                 timestamp,
             } = events[i]
 
+            const d = CSV_FIELD_DELIMITER
             // order is important
-            csvString += `${uuid},${event},${properties},${elements},${people_set},${people_set_once},${distinct_id},${team_id},${ip},${site_url},${timestamp}`
+            csvString += `${uuid}${d}${event}${d}${properties}${d}${elements}${d}${people_set}${d}${people_set_once}${d}${distinct_id}${d}${team_id}${d}${ip}${d}${site_url}${d}${timestamp}`
 
             if (i !== (events.length - 1)) {
                 csvString += '\n'
@@ -358,6 +362,7 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
         await global.snowflake.createStageIfNotExists()
 
         global.batchId = generateBatchId()
+        global.batchEmpty = true
 
         global.eventsToIgnore = new Set<string>((config.eventsToIgnore || '').split(',').map((event) => event.trim()))
     },
@@ -379,13 +384,17 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
             console.info(`Skipping an empty batch of events`)
         }
         try {
-            global.snowflake.uploadToS3(rows, meta)
+            await global.snowflake.uploadToS3(rows, meta)
+            global.batchEmpty = false
         } catch (error) {
             throw new RetryError()
         }
     },
 
     async runEveryMinute({ cache, global }) {
+        if (global.batchEmpty) {
+            return
+        }
         const lastRun = await cache.get('lastRun', null)
         const ONE_HOUR = 60*60*1000
         const timeNow = new Date().getTime()
@@ -393,13 +402,14 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
             lastRun &&
             timeNow - Number(lastRun) < ONE_HOUR 
         ) {
-            //return
+            return
         }
         await cache.set('lastRun', timeNow)
         if (global.useS3) {
-            console.log('Copying from S3 to Snowflake')
+            console.log(`Uploading batch ${global.batchId} from S3 to Snowflake`)
             await global.snowflake.copyIntoTableFromStage(global.batchId)
             global.batchId = generateBatchId()
+            global.batchEmpty = true
         }
 
     }

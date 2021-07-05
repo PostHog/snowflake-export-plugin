@@ -14,40 +14,46 @@
         },
         {
             "key": "username",
-            "name": "Username",
+            "name": "Snowflake Username",
             "type": "string",
             "required": true
         },
         {
             "key": "password",
-            "name": "Password",
+            "name": "Snowflake Password",
             "type": "string",
             "required": false,
             "secret": true
         },
         {
             "key": "database",
-            "name": "Database",
+            "name": "Snowflake database name",
             "type": "string",
             "required": true
         },
         {
             "key": "dbschema",
-            "name": "DB Schema",
+            "name": "Snowflake database schema",
             "type": "string",
             "default": "PUBLIC",
             "required": true
         },
         {
             "key": "table",
-            "name": "DB Table",
+            "name": "Snowflake table name",
             "type": "string",
             "required": true,
             "hint": "Will be created if doesn't already exist."
         },
         {
+            "key": "stageToUse",
+            "name": "Stage Type",
+            "type": "choice",
+            "choices": ["S3"]
+        },
+        {
             "key": "stage",
-            "name": "DB Stage",
+            "name": "Name to use for external stage",
             "type": "string",
             "required": true,
             "hint": "Will be created if doesn't already exist."
@@ -80,10 +86,11 @@
             "type": "string"
         },
         {
-            "key": "stageToUse",
-            "name": "Stage Type",
+            "key": "purgeFromStage",
+            "name": "Purge events from stage?",
             "type": "choice",
-            "choices": ["S3"]
+            "choices": ["No", "Yes"],          
+            "default": "No"
         }
     ]
 }

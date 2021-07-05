@@ -179,7 +179,7 @@ class Snowflake {
             URL='s3://${this.s3Options.bucketName}'
             FILE_FORMAT = ( TYPE = 'CSV' SKIP_HEADER = 1 )
             CREDENTIALS=(aws_key_id='${this.s3Options.awsAccessKeyId}' aws_secret_key='${this.s3Options.awsSecretAccessKey}')
-            ENCRYPTION=(type='AWS_SSE_KMS' kms_key_id = 'aws/key');
+            ENCRYPTION=(type='AWS_SSE_KMS' kms_key_id = 'aws/key')
             COMMENT = 'S3 Stage used by the PostHog Snowflake export plugin'`,
             })
         }
@@ -194,7 +194,7 @@ class Snowflake {
                     binds,
                     complete: function (err, _stmt, rows) {
                         if (err) {
-                            console.error('Error executing Snowflake query:', { sqlText, error: err.message })
+                            console.error('Error executing Snowflake query: ', { sqlText, error: err.message })
                             reject(err)
                         } else {
                             resolve(rows)
@@ -220,7 +220,7 @@ class Snowflake {
                     await new Promise<string>((resolve, reject) =>
                         connection.connect((err, conn) => {
                             if (err) {
-                                console.error('Error connecting to Snowflake:' + err.message)
+                                console.error('Error connecting to Snowflake: ' + err.message)
                                 reject(err)
                             } else {
                                 resolve(conn.getId())
@@ -300,11 +300,11 @@ class Snowflake {
         }
 
         console.log(`Flushing ${events.length} events!`)
-        await new Promise<void>((resolve) => {
+        await new Promise<void>((resolve, reject) => {
             this.s3connector!.upload(params, async (err: Error, _: ManagedUpload.SendData) => {
                 if (err) {
                     console.error(`Error uploading to S3: ${err.message}`)
-                    throw new RetryError()
+                    reject()
                 }
                 console.log(
                     `Uploaded ${events.length} event${events.length === 1 ? '' : 's'} to bucket ${config.s3BucketName}`
@@ -317,7 +317,7 @@ class Snowflake {
     async copyIntoTableFromStage(batchId: number) {
         await this.execute({
             sqlText: `COPY INTO "${this.database}"."${this.dbschema}"."${this.table}"
-            FROM "${this.database}"."${this.dbschema}"."${this.stage}"
+            FROM @${this.database}.${this.dbschema}.${this.stage}
             PATTERN='${batchId}-.*.csv'`,
         })
     }
@@ -345,14 +345,15 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
             exportTableColumns
         )
 
-        // Create stage
-        await global.snowflake.createStageIfNotExists()
-
-        global.batchId = Math.round(Math.random()*100000000)
         global.useS3 = config.stageToUse === 'S3'
         if (global.useS3) {
             global.snowflake.createS3Connector(config.awsAccessKeyId, config.awsSecretAccessKey, config.awsRegion, config.s3BucketName)
         }
+
+        // Create stage
+        await global.snowflake.createStageIfNotExists()
+
+        global.batchId = Math.round(Math.random()*100000000)
 
         global.eventsToIgnore = new Set<string>((config.eventsToIgnore || '').split(',').map((event) => event.trim()))
     },
@@ -392,7 +393,8 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
         }
         await cache.set('lastRun', timeNow)
         if (global.useS3) {
-            global.snowflake.copyIntoTableFromStage(global.batchId)
+            await global.snowflake.copyIntoTableFromStage(global.batchId)
+            console.log('Copying from S3 to Snowflake')
         }
 
     }

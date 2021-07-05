@@ -81,7 +81,7 @@
         },
         {
             "key": "stageToUse",
-            "name": "AWS Region",
+            "name": "Stage Type",
             "type": "choice",
             "choices": ["S3"]
         }

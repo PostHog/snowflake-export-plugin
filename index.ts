@@ -126,10 +126,10 @@ class Snowflake {
     constructor({ account, username, password, database, dbschema, table, stage, specifiedRole }: SnowflakeOptions) {
         this.pool = this.createConnectionPool(account, username, password, specifiedRole)
         this.s3connector = null
-        this.database = database
-        this.dbschema = dbschema
-        this.table = table
-        this.stage = stage
+        this.database = database.toUpperCase()
+        this.dbschema = dbschema.toUpperCase()
+        this.table = table.toUpperCase()
+        this.stage = stage.toUpperCase()
         this.s3Options = null
     }
 

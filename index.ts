@@ -26,14 +26,14 @@ interface SnowflakePluginInput {
         stage: string
         eventsToIgnore: string
         bucketName: string
-        awsAccessKeyId: string
-        awsSecretAccessKey: string
-        awsRegion: string
+        warehouse: string
+        awsAccessKeyId?: string
+        awsSecretAccessKey?: string
+        awsRegion?: string
+        storageIntegrationName?: string
+        role?: string
         stageToUse: 'S3' | 'Google Cloud Storage'
         purgeFromStage: 'Yes' | 'No'
-        storageIntegrationName?: string
-        warehouse: string
-        role?: string
     }
 }
 
@@ -205,12 +205,11 @@ class Snowflake {
     }
 
     public createS3Connector(
-        awsAccessKeyId: string,
-        awsSecretAccessKey: string,
-        awsRegion: string,
-        bucketName: string
+        awsAccessKeyId?: string,
+        awsSecretAccessKey?: string,
+        awsRegion?: string
     ) {
-        if (!awsAccessKeyId || !awsSecretAccessKey || !awsRegion || !bucketName) {
+        if (!awsAccessKeyId || !awsSecretAccessKey || !awsRegion) {
             throw new Error(
                 'You must provide an AWS Access Key ID, Secret Access Key, bucket name, and bucket region to use the S3 stage.'
             )
@@ -518,8 +517,7 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
             global.snowflake.createS3Connector(
                 config.awsAccessKeyId,
                 config.awsSecretAccessKey,
-                config.awsRegion,
-                config.bucketName
+                config.awsRegion
             )
         } else {
             if (!attachments.gcsCredentials) {

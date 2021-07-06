@@ -46,6 +46,12 @@
             "hint": "Will be created if doesn't already exist."
         },
         {
+            "key": "warehouse",
+            "name": "Virtual Warehouse to use for copying files",
+            "required": true,
+            "type": "string"
+        },
+        {
             "key": "role",
             "name": "Specify a role to access Snowflake with",
             "type": "string",
@@ -84,7 +90,8 @@
         {
             "key": "awsSecretAccessKey",
             "name": "AWS Secret Access Key",
-            "type": "string"
+            "type": "string",
+            "secret": true
         },
         {
             "key": "awsRegion",

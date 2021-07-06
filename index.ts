@@ -29,6 +29,7 @@ interface SnowflakePluginInput {
         awsRegion: string
         stageToUse: 'S3' | 'Google Cloud Storage'
         purgeFromStage: 'Yes' | 'No'
+        warehouse: string
         role?: string
     }
 }
@@ -100,6 +101,7 @@ interface SnowflakeOptions {
     dbschema: string
     table: string
     stage: string
+    warehouse: string
     specifiedRole?: string
 }
 
@@ -120,16 +122,17 @@ class Snowflake {
     dbschema: string
     table: string
     stage: string
+    warehouse: string
     s3Options: S3AuthOptions | null
-    specifiedRole?: string
 
-    constructor({ account, username, password, database, dbschema, table, stage, specifiedRole }: SnowflakeOptions) {
+    constructor({ account, username, password, database, dbschema, table, stage, specifiedRole, warehouse }: SnowflakeOptions) {
         this.pool = this.createConnectionPool(account, username, password, specifiedRole)
         this.s3connector = null
         this.database = database.toUpperCase()
         this.dbschema = dbschema.toUpperCase()
         this.table = table.toUpperCase()
         this.stage = stage.toUpperCase()
+        this.warehouse = warehouse.toUpperCase()
         this.s3Options = null
     }
 
@@ -330,6 +333,11 @@ class Snowflake {
                 filesList += ','
             }
         }
+
+        await this.execute({
+            sqlText: `USE WAREHOUSE ${this.warehouse};`,
+        })
+
         await this.execute({
             sqlText: `COPY INTO "${this.database}"."${this.dbschema}"."${this.table}"
             FROM @"${this.database}"."${this.dbschema}".${this.stage}
@@ -359,7 +367,7 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
 
     async setupPlugin(meta) {
         const { global, config } = meta
-        const { account, username, password, dbschema, table, stage, database, role } = config
+        const { account, username, password, dbschema, table, stage, database, role, warehouse } = config
         // Prepare for working with Snowflake
         global.snowflake = new Snowflake({
             account,
@@ -369,7 +377,8 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
             table,
             stage,
             database,
-            specifiedRole: role
+            warehouse,
+            specifiedRole: role,
         })
 
         // Create table

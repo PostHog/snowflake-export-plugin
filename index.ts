@@ -119,6 +119,8 @@ class Snowflake {
     table: string
     stage: string
     s3Options: S3AuthOptions | null
+    gcsOptions: S3AuthOptions | null
+
 
     constructor({ account, username, password, database, dbschema, table, stage }: SnowflakeOptions) {
         this.pool = this.createConnectionPool(account, username, password)
@@ -128,6 +130,7 @@ class Snowflake {
         this.table = table
         this.stage = stage
         this.s3Options = null
+        this.gcsOptions = null
     }
 
     public async clear(): Promise<void> {
@@ -183,7 +186,22 @@ class Snowflake {
             ENCRYPTION=(type='AWS_SSE_KMS' kms_key_id = 'aws/key')
             COMMENT = 'S3 Stage used by the PostHog Snowflake export plugin';`,
             })
+
+            return
         }
+
+        if (!this.gcsOptions) {
+            throw new Error('S3 connector not initialized correctly.')
+        }
+        await this.execute({
+            sqlText: `CREATE STAGE IF NOT EXISTS "${this.database}"."${this.dbschema}"."${this.stage}"
+        URL='s3://${this.s3Options.bucketName}'
+        FILE_FORMAT = ( TYPE = 'CSV' SKIP_HEADER = 1 FIELD_DELIMITER = '${CSV_FIELD_DELIMITER}' )
+        CREDENTIALS=(aws_key_id='${this.s3Options.awsAccessKeyId}' aws_secret_key='${this.s3Options.awsSecretAccessKey}')
+        ENCRYPTION=(type='AWS_SSE_KMS' kms_key_id = 'aws/key')
+        COMMENT = 'S3 Stage used by the PostHog Snowflake export plugin';`,
+        })
+        return
     }
 
     public async execute({ sqlText, binds }: { sqlText: string; binds?: snowflake.Binds }): Promise<any[] | undefined> {

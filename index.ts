@@ -575,7 +575,6 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
         const lastRun = await cache.get('lastRun', null)
         const ONE_HOUR = 60 * 60 * 1000
         const timeNow = new Date().getTime()
-        console.log('here')
         if (lastRun && timeNow - Number(lastRun) < ONE_HOUR) {
             return
         }

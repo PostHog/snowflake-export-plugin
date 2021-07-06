@@ -72,50 +72,9 @@
             "hint": "Will be created if doesn't already exist."
         },
         {
-            "key": "eventsToIgnore",
-            "name": "Events to ignore",
-            "type": "string",
-            "default": "$snapshot, $feature_flag_called",
-            "hint": "Comma separated list of events to ignore"
-        },
-        {
             "key": "bucketName",
             "name": "Bucket Name",
             "type": "string"
-        },
-        {
-            "key": "awsAccessKeyId",
-            "name": "AWS Access Key ID",
-            "type": "string"
-        },
-        {
-            "key": "awsSecretAccessKey",
-            "name": "AWS Secret Access Key",
-            "type": "string",
-            "secret": true
-        },
-        {
-            "key": "awsRegion",
-            "name": "AWS Region",
-            "type": "string"
-        },
-        {
-            "key": "storageIntegrationName",
-            "name": "GCS Storage Integration name",
-            "type": "string",
-            "hint": "Follow [these instructions](https://docs.snowflake.com/en/user-guide/data-load-gcs-config.html) to get this."
-        },
-        {
-            "key": "gcsCredentials",
-            "name": "GCS Credentials",
-            "type": "attachment",
-            "hint": "This should be a JSON file. Instructions on how to get this file can be found in [this Google Cloud Tutorial](https://cloud.google.com/bigquery/docs/reference/libraries#setting_up_authentication)."
-        },
-        {
-            "key": "awsRegion",
-            "name": "S3 Bucket Region",
-            "type": "string",
-            "hint": "We recommend using the same region as your Snowflake instance."
         },
         {
             "key": "purgeFromStage",
@@ -123,6 +82,52 @@
             "type": "choice",
             "choices": ["No", "Yes"],          
             "default": "No"
+        },
+        {
+            "key": "awsAccessKeyId",
+            "name": "AWS Access Key ID",
+            "type": "string",
+            "visible_if": [["stageToUse", "S3"]],
+            "required_if": [["stageToUse", "S3"]]
+        },
+        {
+            "key": "awsSecretAccessKey",
+            "name": "AWS Secret Access Key",
+            "type": "string",
+            "secret": true,
+            "visible_if": [["stageToUse", "S3"]],
+            "required_if": [["stageToUse", "S3"]]
+        },
+        {
+            "key": "awsRegion",
+            "name": "S3 Bucket Region",
+            "type": "string",
+            "hint": "We recommend using the same region as your Snowflake instance.",
+            "visible_if": [["stageToUse", "S3"]],
+            "required_if": [["stageToUse", "S3"]]
+        },
+        {
+            "key": "storageIntegrationName",
+            "name": "GCS Storage Integration name",
+            "type": "string",
+            "hint": "Follow [these instructions](https://docs.snowflake.com/en/user-guide/data-load-gcs-config.html) to get this.",
+            "visible_if": [["stageToUse", "GCS"]],
+            "required_if": [["stageToUse", "GCS"]]
+        },
+        {
+            "key": "gcsCredentials",
+            "name": "GCS Credentials",
+            "type": "attachment",
+            "hint": "This should be a JSON file. Instructions on how to get this file can be found in [this Google Cloud Tutorial](https://cloud.google.com/bigquery/docs/reference/libraries#setting_up_authentication).",
+            "visible_if": [["stageToUse", "GCS"]],
+            "required_if": [["stageToUse", "GCS"]]
+        },
+        {
+            "key": "eventsToIgnore",
+            "name": "Events to ignore",
+            "type": "string",
+            "default": "$snapshot, $feature_flag_called",
+            "hint": "Comma separated list of events to ignore"
         }
     ]
 }

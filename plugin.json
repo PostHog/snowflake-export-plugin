@@ -66,8 +66,8 @@
             "hint": "Comma separated list of events to ignore"
         },
         {
-            "key": "s3BucketName",
-            "name": "S3 Bucket Name",
+            "key": "bucketName",
+            "name": "Bucket Name",
             "type": "string"
         },
         {
@@ -79,6 +79,22 @@
             "key": "awsSecretAccessKey",
             "name": "AWS Secret Access Key",
             "type": "string"
+        },
+        {
+            "key": "awsRegion",
+            "name": "AWS Region",
+            "type": "string"
+        },
+        {
+            "key": "storageIntegrationName",
+            "name": "GCS Storage Integration name",
+            "type": "string",
+            "hint": "https://docs.snowflake.com/en/user-guide/data-load-gcs-config.html"
+        },
+        {
+            "key": "gcsCredentials",
+            "name": "GCS Credentials",
+            "type": "attachment"
         },
         {
             "key": "awsRegion",

@@ -176,7 +176,17 @@ class Snowflake {
     gcsOptions: GCSAuthOptions | null
     gcsConnector: Bucket | null
 
-    constructor({ account, username, password, database, dbschema, table, stage, specifiedRole, warehouse }: SnowflakeOptions) {
+    constructor({
+        account,
+        username,
+        password,
+        database,
+        dbschema,
+        table,
+        stage,
+        specifiedRole,
+        warehouse,
+    }: SnowflakeOptions) {
         this.pool = this.createConnectionPool(account, username, password, specifiedRole)
         this.s3connector = null
         this.database = database.toUpperCase()
@@ -270,8 +280,7 @@ class Snowflake {
         FILE_FORMAT = ( TYPE = 'CSV' SKIP_HEADER = 1 FIELD_DELIMITER = '${CSV_FIELD_DELIMITER}' )
         STORAGE_INTEGRATION = ${this.gcsOptions.storageIntegrationName}
         COMMENT = 'GCS Stage used by the PostHog Snowflake export plugin';`,
-        }) 
-
+        })
     }
 
     public async execute({ sqlText, binds }: { sqlText: string; binds?: snowflake.Binds }): Promise<any[] | undefined> {
@@ -296,7 +305,12 @@ class Snowflake {
         }
     }
 
-    private createConnectionPool(account: string, username: string, password: string, specifiedRole?: string): Snowflake['pool'] {
+    private createConnectionPool(
+        account: string,
+        username: string,
+        password: string,
+        specifiedRole?: string
+    ): Snowflake['pool'] {
         const roleConfig = specifiedRole ? { role: specifiedRole } : {}
         return createPool(
             {
@@ -307,7 +321,7 @@ class Snowflake {
                         password,
                         database: this.database,
                         schema: this.dbschema,
-                        ...roleConfig
+                        ...roleConfig,
                     })
 
                     await new Promise<string>((resolve, reject) =>
@@ -471,8 +485,7 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
             'stage',
             'database',
             'bucketName',
-            'role',
-            'warehouse'
+            'warehouse',
         ]
         for (const option of requiredConfigOptions) {
             if (!(option in config)) {
@@ -509,19 +522,18 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
                 config.bucketName
             )
         } else {
-            if (!attachments.googleCloudKeyJson) {
+            if (!attachments.gcsCredentials) {
                 throw new Error('Credentials JSON file not provided!')
             }
             let credentials: GCSCredentials
             try {
-                credentials = JSON.parse(attachments.googleCloudKeyJson.contents.toString())
+                credentials = JSON.parse(attachments.gcsCredentials.contents.toString())
             } catch {
                 throw new Error('Credentials JSON file has invalid JSON!')
             }
             global.snowflake.createGCSConnector(credentials, config.bucketName, config.storageIntegrationName)
         }
 
-        // Create stage
         await global.snowflake.createStageIfNotExists(global.useS3, config.bucketName)
 
         global.filesStagedForCopy = []
@@ -565,23 +577,21 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
         const lastRun = await cache.get('lastRun', null)
         const ONE_HOUR = 60 * 60 * 1000
         const timeNow = new Date().getTime()
+        console.log('here')
         if (lastRun && timeNow - Number(lastRun) < ONE_HOUR) {
-            return
+            //return
         }
         await cache.set('lastRun', timeNow)
-        if (global.useS3) {
-            console.log(`Copying ${String(global.filesStagedForCopy)} from S3 into Snowflake`)
-            try {
-                await global.snowflake.copyIntoTableFromStage(global.filesStagedForCopy, global.purgeEventsFromStage)
-            } catch {
-                await jobs
-                    .retryCopyIntoSnowflake({ retriesPerformedSoFar: 0, filesStagedForCopy: global.filesStagedForCopy })
-                    .runIn(3, 'seconds')
-                console.error(
-                    `Failed to copy ${String(global.filesStagedForCopy)} from S3 into Snowflake. Retrying in 3s.`
-                )
-            }
+        console.log(`Copying ${String(global.filesStagedForCopy)} from ${global.useS3 ? 'S3' : 'GCS'} into Snowflake`)
+        try {
+            await global.snowflake.copyIntoTableFromStage(global.filesStagedForCopy, global.purgeEventsFromStage)
+        } catch {
+            await jobs
+                .retryCopyIntoSnowflake({ retriesPerformedSoFar: 0, filesStagedForCopy: global.filesStagedForCopy })
+                .runIn(3, 'seconds')
+            console.error(`Failed to copy ${String(global.filesStagedForCopy)} from ${global.useS3 ? 'S3' : 'GCS'} into Snowflake. Retrying in 3s.`)
         }
+
         global.filesStagedForCopy = []
         global.batchEmpty = true
     },

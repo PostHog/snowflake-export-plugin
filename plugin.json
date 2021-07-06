@@ -103,17 +103,19 @@
             "key": "storageIntegrationName",
             "name": "GCS Storage Integration name",
             "type": "string",
-            "hint": "https://docs.snowflake.com/en/user-guide/data-load-gcs-config.html"
+            "hint": "Follow [these instructions](https://docs.snowflake.com/en/user-guide/data-load-gcs-config.html) to get this."
         },
         {
             "key": "gcsCredentials",
             "name": "GCS Credentials",
-            "type": "attachment"
+            "type": "attachment",
+            "hint": "This should be a JSON file. Instructions on how to get this file can be found in [this Google Cloud Tutorial](https://cloud.google.com/bigquery/docs/reference/libraries#setting_up_authentication)."
         },
         {
             "key": "awsRegion",
-            "name": "AWS Region",
-            "type": "string"
+            "name": "S3 Bucket Region",
+            "type": "string",
+            "hint": "We recommend using the same region as your Snowflake instance."
         },
         {
             "key": "purgeFromStage",

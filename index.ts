@@ -31,7 +31,9 @@ interface SnowflakePluginInput {
         awsRegion: string
         stageToUse: 'S3' | 'Google Cloud Storage'
         purgeFromStage: 'Yes' | 'No'
-        storageIntegrationName: string
+        storageIntegrationName?: string
+        warehouse: string
+        role?: string
     }
 }
 
@@ -57,6 +59,8 @@ interface SnowflakeOptions {
     dbschema: string
     table: string
     stage: string
+    warehouse: string
+    specifiedRole?: string
 }
 
 interface S3AuthOptions {
@@ -167,17 +171,19 @@ class Snowflake {
     dbschema: string
     table: string
     stage: string
+    warehouse: string
     s3Options: S3AuthOptions | null
     gcsOptions: GCSAuthOptions | null
     gcsConnector: Bucket | null
 
-    constructor({ account, username, password, database, dbschema, table, stage }: SnowflakeOptions) {
-        this.pool = this.createConnectionPool(account, username, password)
+    constructor({ account, username, password, database, dbschema, table, stage, specifiedRole, warehouse }: SnowflakeOptions) {
+        this.pool = this.createConnectionPool(account, username, password, specifiedRole)
         this.s3connector = null
-        this.database = database
-        this.dbschema = dbschema
-        this.table = table
-        this.stage = stage
+        this.database = database.toUpperCase()
+        this.dbschema = dbschema.toUpperCase()
+        this.table = table.toUpperCase()
+        this.stage = stage.toUpperCase()
+        this.warehouse = warehouse.toUpperCase()
         this.s3Options = null
         this.gcsOptions = null
         this.gcsConnector = null
@@ -210,7 +216,7 @@ class Snowflake {
         }
     }
 
-    public createGCSConnector(credentials: GCSCredentials, bucketName: string, storageIntegrationName: string) {
+    public createGCSConnector(credentials: GCSCredentials, bucketName: string, storageIntegrationName?: string) {
         if (!credentials || !storageIntegrationName) {
             throw new Error(
                 'You must provide valid credentials and your storage integration name to use the GCS stage.'
@@ -290,7 +296,8 @@ class Snowflake {
         }
     }
 
-    private createConnectionPool(account: string, username: string, password: string): Snowflake['pool'] {
+    private createConnectionPool(account: string, username: string, password: string, specifiedRole?: string): Snowflake['pool'] {
+        const roleConfig = specifiedRole ? { role: specifiedRole } : {}
         return createPool(
             {
                 create: async () => {
@@ -300,6 +307,7 @@ class Snowflake {
                         password,
                         database: this.database,
                         schema: this.dbschema,
+                        ...roleConfig
                     })
 
                     await new Promise<string>((resolve, reject) =>
@@ -410,6 +418,11 @@ class Snowflake {
                 filesList += ','
             }
         }
+
+        await this.execute({
+            sqlText: `USE WAREHOUSE ${this.warehouse};`,
+        })
+
         await this.execute({
             sqlText: `COPY INTO "${this.database}"."${this.dbschema}"."${this.table}"
             FROM @"${this.database}"."${this.dbschema}".${this.stage}
@@ -458,6 +471,8 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
             'stage',
             'database',
             'bucketName',
+            'role',
+            'warehouse'
         ]
         for (const option of requiredConfigOptions) {
             if (!(option in config)) {
@@ -465,7 +480,7 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
             }
         }
 
-        const { account, username, password, dbschema, table, stage, database } = config
+        const { account, username, password, dbschema, table, stage, database, role, warehouse } = config
 
         // Prepare for working with Snowflake
         global.snowflake = new Snowflake({
@@ -476,6 +491,8 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
             table,
             stage,
             database,
+            warehouse,
+            specifiedRole: role,
         })
 
         // Create table

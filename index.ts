@@ -579,7 +579,7 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
         const timeNow = new Date().getTime()
         console.log('here')
         if (lastRun && timeNow - Number(lastRun) < ONE_HOUR) {
-            //return
+            return
         }
         await cache.set('lastRun', timeNow)
         console.log(`Copying ${String(global.filesStagedForCopy)} from ${global.useS3 ? 'S3' : 'GCS'} into Snowflake`)

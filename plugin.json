@@ -49,7 +49,7 @@
             "key": "stageToUse",
             "name": "Stage Type",
             "type": "choice",
-            "choices": ["S3"]
+            "choices": ["S3", "GCS"]
         },
         {
             "key": "stage",

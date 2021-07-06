@@ -46,6 +46,12 @@
             "hint": "Will be created if doesn't already exist."
         },
         {
+            "key": "role",
+            "name": "Specify a role to access Snowflake with",
+            "type": "string",
+            "hint": "Optional, overrides the default role for the user."
+        },
+        {
             "key": "stageToUse",
             "name": "Stage Type",
             "type": "choice",

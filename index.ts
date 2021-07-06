@@ -29,6 +29,7 @@ interface SnowflakePluginInput {
         awsRegion: string
         stageToUse: 'S3' | 'Google Cloud Storage'
         purgeFromStage: 'Yes' | 'No'
+        role?: string
     }
 }
 
@@ -99,6 +100,7 @@ interface SnowflakeOptions {
     dbschema: string
     table: string
     stage: string
+    specifiedRole?: string
 }
 
 interface S3AuthOptions {
@@ -119,9 +121,10 @@ class Snowflake {
     table: string
     stage: string
     s3Options: S3AuthOptions | null
+    specifiedRole?: string
 
-    constructor({ account, username, password, database, dbschema, table, stage }: SnowflakeOptions) {
-        this.pool = this.createConnectionPool(account, username, password)
+    constructor({ account, username, password, database, dbschema, table, stage, specifiedRole }: SnowflakeOptions) {
+        this.pool = this.createConnectionPool(account, username, password, specifiedRole)
         this.s3connector = null
         this.database = database
         this.dbschema = dbschema
@@ -208,7 +211,8 @@ class Snowflake {
         }
     }
 
-    private createConnectionPool(account: string, username: string, password: string): Snowflake['pool'] {
+    private createConnectionPool(account: string, username: string, password: string, specifiedRole?: string): Snowflake['pool'] {
+        const roleConfig = specifiedRole ? { role: specifiedRole } : {}
         return createPool(
             {
                 create: async () => {
@@ -218,6 +222,7 @@ class Snowflake {
                         password,
                         database: this.database,
                         schema: this.dbschema,
+                        ...roleConfig
                     })
 
                     await new Promise<string>((resolve, reject) =>
@@ -354,7 +359,7 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
 
     async setupPlugin(meta) {
         const { global, config } = meta
-        const { account, username, password, dbschema, table, stage, database } = config
+        const { account, username, password, dbschema, table, stage, database, role } = config
         // Prepare for working with Snowflake
         global.snowflake = new Snowflake({
             account,
@@ -364,6 +369,7 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
             table,
             stage,
             database,
+            specifiedRole: role
         })
 
         // Create table

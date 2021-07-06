@@ -74,7 +74,8 @@
         {
             "key": "bucketName",
             "name": "Bucket Name",
-            "type": "string"
+            "type": "string",
+            "required": true
         },
         {
             "key": "purgeFromStage",

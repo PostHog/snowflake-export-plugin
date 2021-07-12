@@ -3,11 +3,11 @@
     "url": "https://github.com/posthog/snowflake-export-plugin",
     "description": "Export PostHog events into Snowflake",
     "main": "index.ts",
-    "posthogVersion": ">=1.25.0",
+    "posthogVersion": ">=1.27.0",
     "config": [
         {
             "key": "account",
-            "name": "Account",
+            "name": "Snowflake Account",
             "type": "string",
             "hint": "In the format of \"ab12345\" or \"ab12345.region.cloud\"",
             "required": true
@@ -27,55 +27,57 @@
         },
         {
             "key": "database",
-            "name": "Snowflake database name",
+            "name": "Snowflake Database Name",
             "type": "string",
             "required": true
         },
         {
             "key": "dbschema",
-            "name": "Snowflake database schema",
+            "name": "Snowflake Database Schema Name",
             "type": "string",
             "default": "PUBLIC",
             "required": true
         },
         {
             "key": "table",
-            "name": "Snowflake table name",
+            "name": "Snowflake Table Name",
             "type": "string",
             "required": true,
             "hint": "Will be created if doesn't already exist."
         },
         {
             "key": "warehouse",
-            "name": "Virtual Warehouse to use for copying files",
+            "name": "Snowflake Virtual Warehouse Name",
             "required": true,
-            "type": "string"
+            "type": "string",
+            "hint": "Warehouse to be used for ingesting from stage."
         },
         {
             "key": "role",
-            "name": "Specify a role to access Snowflake with",
+            "name": "Snowflake Role",
             "type": "string",
-            "hint": "Optional, overrides the default role for the user."
+            "hint": "Optional, overrides the default role of the user."
         },
         {
             "key": "stageToUse",
-            "name": "Stage Type",
+            "name": "Object Storage",
             "type": "choice",
-            "choices": ["S3"]
+            "choices": ["S3"],
+            "hint": "Object storage platform that will be used for staging data for Snowflake export."
         },
         {
             "key": "stage",
-            "name": "Name to use for external stage",
+            "name": "Snowflake Stage Name",
             "type": "string",
             "required": true,
-            "hint": "Will be created if doesn't already exist."
+            "hint": "External (object storage) stage where files will be stored before final export."
         },
         {
             "key": "eventsToIgnore",
-            "name": "Events to ignore",
+            "name": "Ignored Events",
             "type": "string",
             "default": "$snapshot, $feature_flag_called",
-            "hint": "Comma separated list of events to ignore"
+            "hint": "Comma-separated list of events to ignore."
         },
         {
             "key": "s3BucketName",
@@ -100,7 +102,7 @@
         },
         {
             "key": "purgeFromStage",
-            "name": "Purge events from stage after copying?",
+            "name": "Purge Events from Object Storage after Copy?",
             "type": "choice",
             "choices": ["No", "Yes"],          
             "default": "No"

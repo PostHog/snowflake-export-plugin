@@ -4,6 +4,8 @@ import { PluginEvent, Plugin, RetryError, CacheExtension } from '@posthog/plugin
 import { randomBytes } from 'crypto'
 import { ManagedUpload } from 'aws-sdk/clients/s3'
 import { S3 } from 'aws-sdk'
+import { Storage, Bucket } from '@google-cloud/storage'
+import { PassThrough } from 'stream'
 
 interface SnowflakePluginInput {
     global: {
@@ -21,15 +23,16 @@ interface SnowflakePluginInput {
         table: string
         stage: string
         eventsToIgnore: string
-        s3BucketName: string
-        awsAccessKeyId: string
-        awsSecretAccessKey: string
-        awsRegion: string
+        bucketName: string
+        warehouse: string
+        awsAccessKeyId?: string
+        awsSecretAccessKey?: string
+        awsRegion?: string
+        storageIntegrationName?: string
+        role?: string
         stageToUse: 'S3' | 'Google Cloud Storage'
         purgeFromStage: 'Yes' | 'No'
-        warehouse: string
-        role?: string
-    },
+    }
     cache: CacheExtension
 }
 
@@ -45,6 +48,38 @@ interface TableRow {
     ip: string
     site_url: string
     timestamp: string
+}
+
+interface SnowflakeOptions {
+    account: string
+    username: string
+    password: string
+    database: string
+    dbschema: string
+    table: string
+    stage: string
+    warehouse: string
+    specifiedRole?: string
+}
+
+interface S3AuthOptions {
+    awsAccessKeyId: string
+    awsSecretAccessKey: string
+}
+
+interface GCSAuthOptions {
+    storageIntegrationName: string
+}
+
+interface GCSCredentials {
+    project_id?: string
+    client_email?: string
+    private_key?: string
+}
+
+interface RetryCopyIntoJobPayload {
+    retriesPerformedSoFar: number
+    filesStagedForCopy: string[]
 }
 
 const TABLE_SCHEMA = [
@@ -93,28 +128,44 @@ function transformEventToRow(fullEvent: PluginEvent): TableRow {
         people_set_once: JSON.stringify($set_once || {}),
     }
 }
-interface SnowflakeOptions {
-    account: string
-    username: string
-    password: string
-    database: string
-    dbschema: string
-    table: string
-    stage: string
-    warehouse: string
-    specifiedRole?: string
+
+function generateFileName(): string {
+    const date = new Date().toISOString()
+    const [day, time] = date.split('T')
+    const dayTime = `${day.split('-').join('')}-${time.split(':').join('')}`
+    const suffix = randomBytes(8).toString('hex')
+
+    return `snowflake-export-${day}-${dayTime}-${suffix}.csv`
 }
 
-interface S3AuthOptions {
-    awsAccessKeyId: string
-    awsSecretAccessKey: string
-    bucketName: string
+function generateCsvString(events: TableRow[]): string {
+    let csvString =
+        'uuid,event,properties,elements,people_set,people_set_once,distinct_id,team_id,ip,site_url,timestamp\n'
+    for (let i = 0; i < events.length; ++i) {
+        const {
+            uuid,
+            event,
+            properties,
+            elements,
+            people_set,
+            people_set_once,
+            distinct_id,
+            team_id,
+            ip,
+            site_url,
+            timestamp,
+        } = events[i]
+        const d = CSV_FIELD_DELIMITER
+        // order is important
+        csvString += `${uuid}${d}${event}${d}${properties}${d}${elements}${d}${people_set}${d}${people_set_once}${d}${distinct_id}${d}${team_id}${d}${ip}${d}${site_url}${d}${timestamp}`
+        if (i !== events.length - 1) {
+            csvString += '\n'
+        }
+    }
+
+    return csvString
 }
 
-interface RetryCopyIntoJobPayload {
-    retriesPerformedSoFar: number
-    filesStagedForCopy: string[]
-}
 class Snowflake {
     private pool: Pool<snowflake.Connection>
     private s3connector: S3 | null
@@ -124,8 +175,20 @@ class Snowflake {
     stage: string
     warehouse: string
     s3Options: S3AuthOptions | null
+    gcsOptions: GCSAuthOptions | null
+    gcsConnector: Bucket | null
 
-    constructor({ account, username, password, database, dbschema, table, stage, specifiedRole, warehouse }: SnowflakeOptions) {
+    constructor({
+        account,
+        username,
+        password,
+        database,
+        dbschema,
+        table,
+        stage,
+        specifiedRole,
+        warehouse,
+    }: SnowflakeOptions) {
         this.pool = this.createConnectionPool(account, username, password, specifiedRole)
         this.s3connector = null
         this.database = database.toUpperCase()
@@ -134,6 +197,8 @@ class Snowflake {
         this.stage = stage.toUpperCase()
         this.warehouse = warehouse.toUpperCase()
         this.s3Options = null
+        this.gcsOptions = null
+        this.gcsConnector = null
     }
 
     public async clear(): Promise<void> {
@@ -141,13 +206,8 @@ class Snowflake {
         await this.pool.clear()
     }
 
-    public createS3Connector(
-        awsAccessKeyId: string,
-        awsSecretAccessKey: string,
-        awsRegion: string,
-        bucketName: string
-    ) {
-        if (!awsAccessKeyId || !awsSecretAccessKey || !awsRegion || !bucketName) {
+    public createS3Connector(awsAccessKeyId?: string, awsSecretAccessKey?: string, awsRegion?: string) {
+        if (!awsAccessKeyId || !awsSecretAccessKey || !awsRegion) {
             throw new Error(
                 'You must provide an AWS Access Key ID, Secret Access Key, bucket name, and bucket region to use the S3 stage.'
             )
@@ -160,8 +220,22 @@ class Snowflake {
         this.s3Options = {
             awsAccessKeyId,
             awsSecretAccessKey,
-            bucketName,
         }
+    }
+
+    public createGCSConnector(credentials: GCSCredentials, bucketName: string, storageIntegrationName?: string) {
+        if (!credentials || !storageIntegrationName) {
+            throw new Error(
+                'You must provide valid credentials and your storage integration name to use the GCS stage.'
+            )
+        }
+        const storage = new Storage({
+            projectId: credentials['project_id'],
+            credentials,
+            autoRetry: false,
+        })
+        this.gcsConnector = storage.bucket(bucketName)
+        this.gcsOptions = { storageIntegrationName: storageIntegrationName.toUpperCase() }
     }
 
     public async createTableIfNotExists(columns: string): Promise<void> {
@@ -176,20 +250,34 @@ class Snowflake {
         })
     }
 
-    public async createStageIfNotExists(useS3 = true): Promise<void> {
+    public async createStageIfNotExists(useS3: boolean, bucketName: string): Promise<void> {
         if (useS3) {
             if (!this.s3Options) {
                 throw new Error('S3 connector not initialized correctly.')
             }
             await this.execute({
                 sqlText: `CREATE STAGE IF NOT EXISTS "${this.database}"."${this.dbschema}"."${this.stage}"
-            URL='s3://${this.s3Options.bucketName}'
+            URL='s3://${bucketName}'
             FILE_FORMAT = ( TYPE = 'CSV' SKIP_HEADER = 1 FIELD_DELIMITER = '${CSV_FIELD_DELIMITER}' )
             CREDENTIALS=(aws_key_id='${this.s3Options.awsAccessKeyId}' aws_secret_key='${this.s3Options.awsSecretAccessKey}')
             ENCRYPTION=(type='AWS_SSE_KMS' kms_key_id = 'aws/key')
             COMMENT = 'S3 Stage used by the PostHog Snowflake export plugin';`,
             })
+
+            return
         }
+
+        if (!this.gcsOptions) {
+            throw new Error('GCS connector not initialized correctly.')
+        }
+
+        await this.execute({
+            sqlText: `CREATE STAGE IF NOT EXISTS "${this.database}"."${this.dbschema}"."${this.stage}"
+        URL='gcs://${bucketName}'
+        FILE_FORMAT = ( TYPE = 'CSV' SKIP_HEADER = 1 FIELD_DELIMITER = '${CSV_FIELD_DELIMITER}' )
+        STORAGE_INTEGRATION = ${this.gcsOptions.storageIntegrationName}
+        COMMENT = 'GCS Stage used by the PostHog Snowflake export plugin';`,
+        })
     }
 
     public async execute({ sqlText, binds }: { sqlText: string; binds?: snowflake.Binds }): Promise<any[] | undefined> {
@@ -214,7 +302,12 @@ class Snowflake {
         }
     }
 
-    private createConnectionPool(account: string, username: string, password: string, specifiedRole?: string): Snowflake['pool'] {
+    private createConnectionPool(
+        account: string,
+        username: string,
+        password: string,
+        specifiedRole?: string
+    ): Snowflake['pool'] {
         const roleConfig = specifiedRole ? { role: specifiedRole } : {}
         return createPool(
             {
@@ -225,7 +318,7 @@ class Snowflake {
                         password,
                         database: this.database,
                         schema: this.dbschema,
-                        ...roleConfig
+                        ...roleConfig,
                     })
 
                     await new Promise<string>((resolve, reject) =>
@@ -269,42 +362,11 @@ class Snowflake {
         }
         const { config, cache } = meta
 
-        const date = new Date().toISOString()
-        const [day, time] = date.split('T')
-        const dayTime = `${day.split('-').join('')}-${time.split(':').join('')}`
-        const suffix = randomBytes(8).toString('hex')
-
-        let csvString =
-            'uuid,event,properties,elements,people_set,people_set_once,distinct_id,team_id,ip,site_url,timestamp\n'
-
-        for (let i = 0; i < events.length; ++i) {
-            const {
-                uuid,
-                event,
-                properties,
-                elements,
-                people_set,
-                people_set_once,
-                distinct_id,
-                team_id,
-                ip,
-                site_url,
-                timestamp,
-            } = events[i]
-
-            const d = CSV_FIELD_DELIMITER
-            // order is important
-            csvString += `${uuid}${d}${event}${d}${properties}${d}${elements}${d}${people_set}${d}${people_set_once}${d}${distinct_id}${d}${team_id}${d}${ip}${d}${site_url}${d}${timestamp}`
-
-            if (i !== events.length - 1) {
-                csvString += '\n'
-            }
-        }
-
-        const fileName = `snowflake-export-${day}-${dayTime}-${suffix}.csv`
+        const csvString = generateCsvString(events)
+        const fileName = generateFileName()
 
         const params = {
-            Bucket: config.s3BucketName,
+            Bucket: config.bucketName,
             Key: fileName,
             Body: Buffer.from(csvString, 'utf8'),
         }
@@ -317,10 +379,42 @@ class Snowflake {
                     reject()
                 }
                 console.log(
-                    `Uploaded ${events.length} event${events.length === 1 ? '' : 's'} to bucket ${config.s3BucketName}`
+                    `Uploaded ${events.length} event${events.length === 1 ? '' : 's'} to bucket ${config.bucketName}`
                 )
                 resolve()
             })
+        })
+        await cache.lpush(REDIS_FILES_LIST_KEY, [fileName])
+    }
+
+    async uploadToGCS(events: TableRow[], { cache }: SnowflakePluginInput) {
+        if (!this.gcsConnector) {
+            throw new Error('GCS connector not setup correctly!')
+        }
+        const csvString = generateCsvString(events)
+        const fileName = generateFileName()
+
+        // some minor hackiness to upload without access to the filesystem
+        const dataStream = new PassThrough()
+        const gcFile = this.gcsConnector.file(fileName)
+
+        dataStream.push(csvString)
+        dataStream.push(null)
+
+        await new Promise((resolve, reject) => {
+            dataStream
+                .pipe(
+                    gcFile.createWriteStream({
+                        resumable: false,
+                        validation: false,
+                    })
+                )
+                .on('error', (error: Error) => {
+                    reject(error)
+                })
+                .on('finish', () => {
+                    resolve(true)
+                })
         })
         await cache.lpush(REDIS_FILES_LIST_KEY, [fileName])
     }
@@ -329,7 +423,7 @@ class Snowflake {
         let filesList = ''
         for (let i = 0; i < files.length; ++i) {
             filesList += `'${files[i]}'`
-            if (i !== files.length-1) {
+            if (i !== files.length - 1) {
                 filesList += ','
             }
         }
@@ -359,16 +453,43 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
                 await global.snowflake.copyIntoTableFromStage(payload.filesStagedForCopy, global.purgeEventsFromStage)
             } catch {
                 const nextRetrySeconds = 2 ** payload.retriesPerformedSoFar * 3
-                await jobs.retryCopyIntoSnowflake({ retriesPerformedSoFar: payload.retriesPerformedSoFar+1, filesStagedForCopy: payload.filesStagedForCopy }).runIn(nextRetrySeconds, 'seconds')
-                console.error(`Failed to copy ${String(payload.filesStagedForCopy)} from S3 into Snowflake. Retrying in ${nextRetrySeconds}s.`)
+                await jobs
+                    .retryCopyIntoSnowflake({
+                        retriesPerformedSoFar: payload.retriesPerformedSoFar + 1,
+                        filesStagedForCopy: payload.filesStagedForCopy,
+                    })
+                    .runIn(nextRetrySeconds, 'seconds')
+                console.error(
+                    `Failed to copy ${String(
+                        payload.filesStagedForCopy
+                    )} from S3 into Snowflake. Retrying in ${nextRetrySeconds}s.`
+                )
             }
         },
     },
 
     async setupPlugin(meta) {
-        const { global, config } = meta
+        const { global, config, attachments } = meta
+
+        const requiredConfigOptions = [
+            'account',
+            'username',
+            'password',
+            'dbschema',
+            'table',
+            'stage',
+            'database',
+            'bucketName',
+            'warehouse',
+        ]
+        for (const option of requiredConfigOptions) {
+            if (!(option in config)) {
+                throw new Error(`Required config option ${option} is missing!`)
+            }
+        }
+
         const { account, username, password, dbschema, table, stage, database, role, warehouse } = config
-        // Prepare for working with Snowflake
+
         global.snowflake = new Snowflake({
             account,
             username,
@@ -381,23 +502,27 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
             specifiedRole: role,
         })
 
-        // Create table
         await global.snowflake.createTableIfNotExists(exportTableColumns)
 
         global.purgeEventsFromStage = config.purgeFromStage === 'Yes'
 
         global.useS3 = config.stageToUse === 'S3'
         if (global.useS3) {
-            global.snowflake.createS3Connector(
-                config.awsAccessKeyId,
-                config.awsSecretAccessKey,
-                config.awsRegion,
-                config.s3BucketName
-            )
+            global.snowflake.createS3Connector(config.awsAccessKeyId, config.awsSecretAccessKey, config.awsRegion)
+        } else {
+            if (!attachments.gcsCredentials) {
+                throw new Error('Credentials JSON file not provided!')
+            }
+            let credentials: GCSCredentials
+            try {
+                credentials = JSON.parse(attachments.gcsCredentials.contents.toString())
+            } catch {
+                throw new Error('Credentials JSON file has invalid JSON!')
+            }
+            global.snowflake.createGCSConnector(credentials, config.bucketName, config.storageIntegrationName)
         }
 
-        // Create stage
-        await global.snowflake.createStageIfNotExists()
+        await global.snowflake.createStageIfNotExists(global.useS3, config.bucketName)
 
         global.eventsToIgnore = new Set<string>((config.eventsToIgnore || '').split(',').map((event) => event.trim()))
     },
@@ -419,7 +544,11 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
             console.info(`Skipping an empty batch of events`)
         }
         try {
-            await global.snowflake.uploadToS3(rows, meta)
+            if (global.useS3) {
+                await global.snowflake.uploadToS3(rows, meta)
+            } else {
+                await global.snowflake.uploadToGCS(rows, meta)
+            }
         } catch (error) {
             throw new RetryError()
         }
@@ -435,17 +564,17 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
         const ONE_HOUR = 60 * 60 * 1000
         const timeNow = new Date().getTime()
         if (lastRun && timeNow - Number(lastRun) < ONE_HOUR) {
-            return
+            //return
         }
         await cache.set('lastRun', timeNow)
-        if (global.useS3) {
-            console.log(`Copying ${String(filesStagedForCopy)} from S3 into Snowflake`)
-            try {
-                await global.snowflake.copyIntoTableFromStage(filesStagedForCopy, global.purgeEventsFromStage)
-            } catch {
-                await jobs.retryCopyIntoSnowflake({ retriesPerformedSoFar: 0, filesStagedForCopy: filesStagedForCopy }).runIn(3, 'seconds')
-                console.error(`Failed to copy ${String(filesStagedForCopy)} from S3 into Snowflake. Retrying in 3s.`)
-            }
+        console.log(`Copying ${String(filesStagedForCopy)} from S3 into Snowflake`)
+        try {
+            await global.snowflake.copyIntoTableFromStage(filesStagedForCopy, global.purgeEventsFromStage)
+        } catch {
+            await jobs
+                .retryCopyIntoSnowflake({ retriesPerformedSoFar: 0, filesStagedForCopy: filesStagedForCopy })
+                .runIn(3, 'seconds')
+            console.error(`Failed to copy ${String(filesStagedForCopy)} from S3 into Snowflake. Retrying in 3s.`)
         }
         await cache.expire(REDIS_FILES_LIST_KEY, 0)
     },

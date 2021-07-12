@@ -1,6 +1,6 @@
 import * as snowflake from 'snowflake-sdk'
 import { createPool, Pool } from 'generic-pool'
-import { PluginEvent, Plugin, RetryError } from '@posthog/plugin-scaffold'
+import { PluginEvent, Plugin, RetryError, CacheExtension } from '@posthog/plugin-scaffold'
 import { randomBytes } from 'crypto'
 import { ManagedUpload } from 'aws-sdk/clients/s3'
 import { S3 } from 'aws-sdk'
@@ -10,8 +10,6 @@ interface SnowflakePluginInput {
         snowflake: Snowflake
         eventsToIgnore: Set<string>
         useS3: boolean
-        filesStagedForCopy: string[]
-        batchEmpty: boolean
         purgeEventsFromStage: boolean
     }
     config: {
@@ -31,7 +29,8 @@ interface SnowflakePluginInput {
         purgeFromStage: 'Yes' | 'No'
         warehouse: string
         role?: string
-    }
+    },
+    cache: CacheExtension
 }
 
 interface TableRow {
@@ -63,6 +62,7 @@ const TABLE_SCHEMA = [
 ]
 
 const CSV_FIELD_DELIMITER = '|$|'
+const REDIS_FILES_LIST_KEY = 'files_staged_for_copy'
 
 function transformEventToRow(fullEvent: PluginEvent): TableRow {
     const { event, properties, $set, $set_once, distinct_id, team_id, site_url, now, sent_at, uuid, ...rest } =
@@ -267,7 +267,7 @@ class Snowflake {
         if (!this.s3connector) {
             throw new Error('S3 connector not setup correctly!')
         }
-        const { global, config } = meta
+        const { config, cache } = meta
 
         const date = new Date().toISOString()
         const [day, time] = date.split('T')
@@ -322,7 +322,7 @@ class Snowflake {
                 resolve()
             })
         })
-        global.filesStagedForCopy.push(fileName)
+        await cache.lpush(REDIS_FILES_LIST_KEY, [fileName])
     }
 
     async copyIntoTableFromStage(files: string[], purge = false) {
@@ -399,9 +399,6 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
         // Create stage
         await global.snowflake.createStageIfNotExists()
 
-        global.filesStagedForCopy = []
-        global.batchEmpty = true
-
         global.eventsToIgnore = new Set<string>((config.eventsToIgnore || '').split(',').map((event) => event.trim()))
     },
 
@@ -423,16 +420,17 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
         }
         try {
             await global.snowflake.uploadToS3(rows, meta)
-            global.batchEmpty = false
         } catch (error) {
             throw new RetryError()
         }
     },
 
     async runEveryMinute({ cache, global, jobs }) {
-        if (global.batchEmpty) {
+        const filesStagedLength = await cache.llen(REDIS_FILES_LIST_KEY)
+        if (!filesStagedLength) {
             return
         }
+        const filesStagedForCopy = await cache.lrange(REDIS_FILES_LIST_KEY, 0, filesStagedLength)
         const lastRun = await cache.get('lastRun', null)
         const ONE_HOUR = 60 * 60 * 1000
         const timeNow = new Date().getTime()
@@ -441,16 +439,15 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
         }
         await cache.set('lastRun', timeNow)
         if (global.useS3) {
-            console.log(`Copying ${String(global.filesStagedForCopy)} from S3 into Snowflake`)
+            console.log(`Copying ${String(filesStagedForCopy)} from S3 into Snowflake`)
             try {
-                await global.snowflake.copyIntoTableFromStage(global.filesStagedForCopy, global.purgeEventsFromStage)
+                await global.snowflake.copyIntoTableFromStage(filesStagedForCopy, global.purgeEventsFromStage)
             } catch {
-                await jobs.retryCopyIntoSnowflake({ retriesPerformedSoFar: 0, filesStagedForCopy: global.filesStagedForCopy }).runIn(3, 'seconds')
-                console.error(`Failed to copy ${String(global.filesStagedForCopy)} from S3 into Snowflake. Retrying in 3s.`)
+                await jobs.retryCopyIntoSnowflake({ retriesPerformedSoFar: 0, filesStagedForCopy: filesStagedForCopy }).runIn(3, 'seconds')
+                console.error(`Failed to copy ${String(filesStagedForCopy)} from S3 into Snowflake. Retrying in 3s.`)
             }
         }
-        global.filesStagedForCopy = []
-        global.batchEmpty = true
+        await cache.expire(REDIS_FILES_LIST_KEY, 0)
     },
 }
 

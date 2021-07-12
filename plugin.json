@@ -1,64 +1,111 @@
 {
-    "name": "SnowFlake Export Plugin",
+    "name": "Snowflake Export Plugin",
     "url": "https://github.com/posthog/snowflake-export-plugin",
-    "description": "Export PostHog events into SnowFlake",
+    "description": "Export PostHog events into Snowflake",
     "main": "index.ts",
-    "posthogVersion": ">= 1.24.0",
+    "posthogVersion": ">=1.27.0",
     "config": [
         {
             "key": "account",
-            "name": "Account",
+            "name": "Snowflake Account",
             "type": "string",
             "hint": "In the format of \"ab12345\" or \"ab12345.region.cloud\"",
             "required": true
         },
         {
             "key": "username",
-            "name": "Username",
+            "name": "Snowflake Username",
             "type": "string",
             "required": true
         },
         {
             "key": "password",
-            "name": "Password",
+            "name": "Snowflake Password",
             "type": "string",
             "required": false,
             "secret": true
         },
         {
             "key": "database",
-            "name": "Database",
+            "name": "Snowflake Database Name",
             "type": "string",
             "required": true
         },
         {
             "key": "dbschema",
-            "name": "DB Schema",
+            "name": "Snowflake Database Schema Name",
             "type": "string",
             "default": "PUBLIC",
             "required": true
         },
         {
             "key": "table",
-            "name": "DB Table",
+            "name": "Snowflake Table Name",
             "type": "string",
             "required": true,
             "hint": "Will be created if doesn't already exist."
         },
         {
-            "key": "eventsToIgnore",
-            "name": "Events to ignore",
+            "key": "warehouse",
+            "name": "Snowflake Virtual Warehouse Name",
+            "required": true,
             "type": "string",
-            "default": "$snapshot, $feature_flag_called",
-            "hint": "Comma separated list of events to ignore"
+            "hint": "Warehouse to be used for ingesting from stage."
         },
         {
-            "key": "mergeFrequency",
-            "name": "Table Merge Frequency",
+            "key": "role",
+            "name": "Snowflake Role",
+            "type": "string",
+            "hint": "Optional, overrides the default role of the user."
+        },
+        {
+            "key": "stageToUse",
+            "name": "Object Storage",
             "type": "choice",
-            "choices": ["hour", "minute"],
-            "default": "hour",
-            "hint": "How often do we merge the temporary tables with the main export table. Once per hour (10 min past the hour) or once per minute (last 2 minutes excluded)"
+            "choices": ["S3"],
+            "hint": "Object storage platform that will be used for staging data for Snowflake export."
+        },
+        {
+            "key": "stage",
+            "name": "Snowflake Stage Name",
+            "type": "string",
+            "required": true,
+            "hint": "External (object storage) stage where files will be stored before final export."
+        },
+        {
+            "key": "eventsToIgnore",
+            "name": "Ignored Events",
+            "type": "string",
+            "default": "$snapshot, $feature_flag_called",
+            "hint": "Comma-separated list of events to ignore."
+        },
+        {
+            "key": "s3BucketName",
+            "name": "S3 Bucket Name",
+            "type": "string"
+        },
+        {
+            "key": "awsAccessKeyId",
+            "name": "AWS Access Key ID",
+            "type": "string"
+        },
+        {
+            "key": "awsSecretAccessKey",
+            "name": "AWS Secret Access Key",
+            "type": "string",
+            "secret": true
+        },
+        {
+            "key": "awsRegion",
+            "name": "AWS Region",
+            "type": "string"
+        },
+        {
+            "key": "purgeFromStage",
+            "name": "Purge Events from Object Storage after Copy?",
+            "type": "choice",
+            "choices": ["No", "Yes"],          
+            "default": "No"
         }
     ]
 }

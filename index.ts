@@ -1,19 +1,16 @@
-import { createBuffer } from '@posthog/plugin-contrib'
 import * as snowflake from 'snowflake-sdk'
 import { createPool, Pool } from 'generic-pool'
+import { PluginEvent, Plugin, RetryError, CacheExtension } from '@posthog/plugin-scaffold'
 import { randomBytes } from 'crypto'
-import { PluginEvent, PluginMeta, PluginAttachment } from '@posthog/plugin-scaffold'
-import { Connection } from 'snowflake-sdk'
+import { ManagedUpload } from 'aws-sdk/clients/s3'
+import { S3 } from 'aws-sdk'
 
-interface SnowflakePluginMeta extends PluginMeta {
+interface SnowflakePluginInput {
     global: {
-        snowflakePool: Pool<Connection>
-        snowflakeExecute: SnowflakeExecute
-        uniqueTime: string
-        temporaryTable: string
-        buffer: any
+        snowflake: Snowflake
         eventsToIgnore: Set<string>
-        initDone: boolean
+        useS3: boolean
+        purgeEventsFromStage: boolean
     }
     config: {
         account: string
@@ -22,30 +19,41 @@ interface SnowflakePluginMeta extends PluginMeta {
         database: string
         dbschema: string
         table: string
+        stage: string
         eventsToIgnore: string
-        mergeFrequency: MergeFrequency
-    }
+        s3BucketName: string
+        awsAccessKeyId: string
+        awsSecretAccessKey: string
+        awsRegion: string
+        stageToUse: 'S3' | 'Google Cloud Storage'
+        purgeFromStage: 'Yes' | 'No'
+        warehouse: string
+        role?: string
+    },
+    cache: CacheExtension
 }
 
-type SnowflakeExecuteParams = {
-    sqlText: string
-    binds?: any[] | any[][]
-    verbose?: boolean
+interface TableRow {
+    uuid: string
+    event: string
+    properties: string // Record<string, any>
+    elements: string // Record<string, any>
+    people_set: string // Record<string, any>
+    people_set_once: string // Record<string, any>
+    distinct_id: string
+    team_id: number
+    ip: string
+    site_url: string
+    timestamp: string
 }
-type SnowflakeExecute = (opts: SnowflakeExecuteParams) => Promise<any[]>
 
-enum MergeFrequency {
-    Hour = 'hour',
-    Minute = 'minute',
-}
-
-const tableSchema = [
+const TABLE_SCHEMA = [
     { name: 'uuid', type: 'STRING' },
     { name: 'event', type: 'STRING' },
     { name: 'properties', type: 'VARIANT' },
     { name: 'elements', type: 'VARIANT' },
-    { name: 'set', type: 'VARIANT' },
-    { name: 'set_once', type: 'VARIANT' },
+    { name: 'people_set', type: 'VARIANT' },
+    { name: 'people_set_once', type: 'VARIANT' },
     { name: 'distinct_id', type: 'STRING' },
     { name: 'team_id', type: 'INTEGER' },
     { name: 'ip', type: 'STRING' },
@@ -53,252 +61,14 @@ const tableSchema = [
     { name: 'timestamp', type: 'TIMESTAMP' },
 ]
 
-const exportTableColumns = tableSchema.map(({ name, type }) => `"${name.toUpperCase()}" ${type}`).join(', ')
-const temporaryTableColumns = tableSchema
-    .map(({ name, type }) => `"${name.toUpperCase()}" ${type === 'VARIANT' ? 'STRING' : type}`)
-    .join(', ')
+const CSV_FIELD_DELIMITER = '|$|'
+const REDIS_FILES_LIST_KEY = 'files_staged_for_copy'
 
-const jsonFields = new Set(tableSchema.filter(({ type }) => type === 'VARIANT').map(({ name }) => name))
-
-function verifyConfig({ config }: SnowflakePluginMeta) {
-    if (!config.account) {
-        throw new Error('Account not provided!')
-    }
-    if (!config.username) {
-        throw new Error('Username not provided!')
-    }
-    if (!config.password) {
-        throw new Error('Password not provided!')
-    }
-    if (!config.database) {
-        throw new Error('Database not provided!')
-    }
-    if (!config.dbschema) {
-        throw new Error('DB Schema not provided!')
-    }
-    if (!config.table) {
-        throw new Error('Table not provided!')
-    }
-}
-
-function createSnowflakeConnectionPool({ config }: SnowflakePluginMeta) {
-    return createPool(
-        {
-            create: async () => {
-                const connection = snowflake.createConnection({
-                    account: config.account,
-                    username: config.username,
-                    password: config.password,
-                })
-
-                await new Promise((resolve, reject) =>
-                    connection.connect((err, conn) => {
-                        if (err) {
-                            console.error('Unable to connect to SnowFlake: ' + err.message)
-                            reject(err)
-                        } else {
-                            resolve(conn.getId())
-                        }
-                    })
-                )
-
-                return connection
-            },
-            destroy: async (connection) => {
-                await new Promise((resolve, reject) =>
-                    connection.destroy(function (err) {
-                        if (err) {
-                            console.error('Unable to disconnect: ' + err.message)
-                            reject(err)
-                        } else {
-                            resolve()
-                        }
-                    })
-                )
-            },
-        },
-        {
-            min: 1,
-            max: 1,
-            autostart: true,
-            fifo: true,
-        }
-    )
-}
-
-function createSnowflakeExecute(snowflakePool: Pool<Connection>): SnowflakeExecute {
-    return async ({ sqlText, binds, verbose = false }: SnowflakeExecuteParams): Promise<any[]> => {
-        const snowflake = await snowflakePool.acquire()
-        try {
-            return await new Promise((resolve, reject) =>
-                snowflake.execute({
-                    sqlText,
-                    binds,
-                    complete: function (err, _stmt, rows) {
-                        if (err) {
-                            if (verbose) {
-                                console.error('Error executing SnowFlake query', { sqlText, error: err.message })
-                            }
-                            reject(err)
-                        } else {
-                            resolve(rows)
-                        }
-                    },
-                })
-            )
-        } finally {
-            await snowflakePool.release(snowflake)
-        }
-    }
-}
-
-async function createTableIfNotExists(
-    snowflakeExecute: SnowflakeExecute,
-    database: string,
-    dbschema: string,
-    table: string,
-    columns: string
-) {
-    await snowflakeExecute({
-        sqlText: `CREATE TABLE IF NOT EXISTS "${database}"."${dbschema}"."${table}" (${columns})`,
-    })
-}
-
-async function dropTableIfExists(
-    snowflakeExecute: SnowflakeExecute,
-    database: string,
-    dbschema: string,
-    table: string
-) {
-    await snowflakeExecute({
-        sqlText: `DROP TABLE IF EXISTS "${database}"."${dbschema}"."${table}"`,
-    })
-}
-
-function getCurrentUniqueTime(date = new Date(), mergeFrequency: MergeFrequency): string {
-    const isoTime = date.toISOString()
-    const [day, time] = isoTime.split('T')
-    const times = time.split(':')
-    return `${day.split('-').join('')}-${times[0]}${mergeFrequency === MergeFrequency.Minute ? `${times[1]}M` : '00H'}`
-}
-
-function getTemporaryTableName(table: string, uniqueTime: string): string {
-    return `${table}__BUFFER_${uniqueTime}_${randomBytes(8).toString('hex')}`
-}
-
-function getInsertSql(database: string, dbschema: string, table: string): string {
-    return `INSERT INTO "${database}"."${dbschema}"."${table}" (${tableSchema
-        .map(({ name }) => `"${name.toUpperCase()}"`)
-        .join(', ')}) VALUES (${tableSchema.map(() => '?').join(', ')})`
-}
-
-async function copyTemporaryToExport(
-    snowflakeExecute: SnowflakeExecute,
-    database: string,
-    dbschema: string,
-    tempTable: string,
-    exportTable: string
-): Promise<void> {
-    await snowflakeExecute({
-        sqlText: `INSERT INTO "${database}"."${dbschema}"."${exportTable}" (${tableSchema
-            .map(({ name }) => `"${name.toUpperCase()}"`)
-            .join(', ')}) SELECT ${tableSchema
-            .map(({ name, type }) =>
-                type === 'VARIANT' ? `PARSE_JSON("${name.toUpperCase()}")` : `"${name.toUpperCase()}"`
-            )
-            .join(', ')} FROM "${database}"."${dbschema}"."${tempTable}"`,
-    })
-}
-
-export async function setupPlugin(meta: SnowflakePluginMeta) {
-    const { global, config } = meta
-
-    // get the connections
-    global.snowflakePool = createSnowflakeConnectionPool(meta)
-    global.snowflakeExecute = createSnowflakeExecute(global.snowflakePool)
-
-    // create default table
-    await createTableIfNotExists(
-        global.snowflakeExecute,
-        config.database,
-        config.dbschema,
-        config.table,
-        exportTableColumns
-    )
-
-    // create temporary table for this worker
-    async function setupTemporary(uniqueTime: string) {
-        global.uniqueTime = uniqueTime
-        global.temporaryTable = getTemporaryTableName(config.table, uniqueTime)
-        await createTableIfNotExists(
-            global.snowflakeExecute,
-            config.database,
-            config.dbschema,
-            global.temporaryTable,
-            temporaryTableColumns
-        )
-    }
-
-    global.buffer = createBuffer({
-        limit: 100 * 1024, // 100 kb
-        timeoutSeconds: 10, // 10 seconds
-        onFlush: async (batch) => {
-            console.log(`Flushing batch of ${batch.length} events to SnowFlake`)
-
-            const date = new Date()
-            if (!global.temporaryTable || global.uniqueTime !== getCurrentUniqueTime(date, config.mergeFrequency)) {
-                await setupTemporary(getCurrentUniqueTime(date, config.mergeFrequency))
-            }
-
-            try {
-                await global.snowflakeExecute({
-                    sqlText: getInsertSql(config.database, config.dbschema, global.temporaryTable),
-                    binds: batch,
-                    verbose: true,
-                })
-            } catch (e) {
-                console.error(e)
-            }
-        },
-    })
-
-    global.eventsToIgnore = new Set<string>(
-        (config.eventsToIgnore || '').split(',').map((event: string) => event.trim())
-    )
-
-    global.initDone = true
-}
-
-export async function teardownPlugin({ global }: SnowflakePluginMeta) {
-    global.buffer.flush()
-    await global.snowflakePool.drain()
-    await global.snowflakePool.clear()
-}
-
-export async function processEvent(oneEvent: PluginEvent, { global }: SnowflakePluginMeta) {
-    if (!global.initDone) {
-        throw new Error('No SnowFlake client connected!')
-    }
-
-    if (global.eventsToIgnore.has(oneEvent.event.trim())) {
-        return oneEvent
-    }
-
-    const {
-        event,
-        properties,
-        $set,
-        $set_once,
-        distinct_id,
-        team_id,
-        site_url,
-        now,
-        sent_at,
-        uuid,
-        ..._discard
-    } = oneEvent
-    const ip = properties?.['$ip'] || oneEvent.ip
-    const timestamp = oneEvent.timestamp || properties?.timestamp || now || sent_at
+function transformEventToRow(fullEvent: PluginEvent): TableRow {
+    const { event, properties, $set, $set_once, distinct_id, team_id, site_url, now, sent_at, uuid, ...rest } =
+        fullEvent
+    const ip = properties?.['$ip'] || fullEvent.ip
+    const timestamp = fullEvent.timestamp || properties?.timestamp || now || sent_at
     let ingestedProperties = properties
     let elements = []
 
@@ -309,79 +79,376 @@ export async function processEvent(oneEvent: PluginEvent, { global }: SnowflakeP
         elements = $elements
     }
 
-    const row = {
-        uuid,
+    return {
         event,
-        properties: JSON.stringify(ingestedProperties || {}),
-        elements: JSON.stringify(elements || []),
-        set: JSON.stringify($set || {}),
-        set_once: JSON.stringify($set_once || {}),
         distinct_id,
         team_id,
         ip,
         site_url,
         timestamp,
+        uuid: uuid!,
+        properties: JSON.stringify(ingestedProperties || {}),
+        elements: JSON.stringify(elements || []),
+        people_set: JSON.stringify($set || {}),
+        people_set_once: JSON.stringify($set_once || {}),
     }
-
-    // add an approximate length, as we're not sure what will end up in the final SQL
-    global.buffer.add(Object.values(row), JSON.stringify(row).length)
-
-    return oneEvent
+}
+interface SnowflakeOptions {
+    account: string
+    username: string
+    password: string
+    database: string
+    dbschema: string
+    table: string
+    stage: string
+    warehouse: string
+    specifiedRole?: string
 }
 
-export async function runEveryMinute({ config, global }: SnowflakePluginMeta) {
-    if (!global.initDone) {
-        return
+interface S3AuthOptions {
+    awsAccessKeyId: string
+    awsSecretAccessKey: string
+    bucketName: string
+}
+
+interface RetryCopyIntoJobPayload {
+    retriesPerformedSoFar: number
+    filesStagedForCopy: string[]
+}
+class Snowflake {
+    private pool: Pool<snowflake.Connection>
+    private s3connector: S3 | null
+    database: string
+    dbschema: string
+    table: string
+    stage: string
+    warehouse: string
+    s3Options: S3AuthOptions | null
+
+    constructor({ account, username, password, database, dbschema, table, stage, specifiedRole, warehouse }: SnowflakeOptions) {
+        this.pool = this.createConnectionPool(account, username, password, specifiedRole)
+        this.s3connector = null
+        this.database = database.toUpperCase()
+        this.dbschema = dbschema.toUpperCase()
+        this.table = table.toUpperCase()
+        this.stage = stage.toUpperCase()
+        this.warehouse = warehouse.toUpperCase()
+        this.s3Options = null
     }
-    if (config.mergeFrequency === MergeFrequency.Hour && new Date().getMinutes() % 10 === 0) {
-        // check every 5min if merging once per hour
-        return
+
+    public async clear(): Promise<void> {
+        await this.pool.drain()
+        await this.pool.clear()
     }
 
-    type SnowflakeTable = {
-        name: string
-        database_name: string
-        schema_name: string
-        kind: string
-        rows: number
-        bytes: number
-        // and some more fields we don't care about
-    }
-
-    const response: SnowflakeTable[] = await global.snowflakeExecute({
-        sqlText: `SHOW TABLES LIKE '${config.table}__BUFFER_%' IN "${config.database}"."${config.dbschema}"`,
-    })
-
-    const date = new Date()
-
-    const offLimits = [
-        // skip this and the last 2 minutes
-        getCurrentUniqueTime(date, MergeFrequency.Minute),
-        getCurrentUniqueTime(new Date(date.valueOf() - 60000), MergeFrequency.Minute),
-        getCurrentUniqueTime(new Date(date.valueOf() - 2 * 60000), MergeFrequency.Minute),
-
-        // skip the last hour if less than 9 minutes passed in this hour
-        getCurrentUniqueTime(date, MergeFrequency.Hour),
-        getCurrentUniqueTime(new Date(date.valueOf() - 9 * 60000), MergeFrequency.Hour),
-    ]
-
-    for (const { name, rows } of response) {
-        const uniqueString = name.substring(`${config.table}__BUFFER_`.length)
-        const uniqueTime = uniqueString.split('_')[0]
-        if (!offLimits.includes(uniqueTime)) {
-            await copyTemporaryToExport(
-                global.snowflakeExecute,
-                config.database,
-                config.dbschema,
-                `${config.table}__BUFFER_${uniqueString}`,
-                config.table
-            )
-            await dropTableIfExists(
-                global.snowflakeExecute,
-                config.database,
-                config.dbschema,
-                `${config.table}__BUFFER_${uniqueString}`
+    public createS3Connector(
+        awsAccessKeyId: string,
+        awsSecretAccessKey: string,
+        awsRegion: string,
+        bucketName: string
+    ) {
+        if (!awsAccessKeyId || !awsSecretAccessKey || !awsRegion || !bucketName) {
+            throw new Error(
+                'You must provide an AWS Access Key ID, Secret Access Key, bucket name, and bucket region to use the S3 stage.'
             )
         }
+        this.s3connector = new S3({
+            accessKeyId: awsAccessKeyId,
+            secretAccessKey: awsSecretAccessKey,
+            region: awsRegion,
+        })
+        this.s3Options = {
+            awsAccessKeyId,
+            awsSecretAccessKey,
+            bucketName,
+        }
+    }
+
+    public async createTableIfNotExists(columns: string): Promise<void> {
+        await this.execute({
+            sqlText: `CREATE TABLE IF NOT EXISTS "${this.database}"."${this.dbschema}"."${this.table}" (${columns})`,
+        })
+    }
+
+    public async dropTableIfExists(): Promise<void> {
+        await this.execute({
+            sqlText: `DROP TABLE IF EXISTS "${this.database}"."${this.dbschema}"."${this.table}"`,
+        })
+    }
+
+    public async createStageIfNotExists(useS3 = true): Promise<void> {
+        if (useS3) {
+            if (!this.s3Options) {
+                throw new Error('S3 connector not initialized correctly.')
+            }
+            await this.execute({
+                sqlText: `CREATE STAGE IF NOT EXISTS "${this.database}"."${this.dbschema}"."${this.stage}"
+            URL='s3://${this.s3Options.bucketName}'
+            FILE_FORMAT = ( TYPE = 'CSV' SKIP_HEADER = 1 FIELD_DELIMITER = '${CSV_FIELD_DELIMITER}' )
+            CREDENTIALS=(aws_key_id='${this.s3Options.awsAccessKeyId}' aws_secret_key='${this.s3Options.awsSecretAccessKey}')
+            ENCRYPTION=(type='AWS_SSE_KMS' kms_key_id = 'aws/key')
+            COMMENT = 'S3 Stage used by the PostHog Snowflake export plugin';`,
+            })
+        }
+    }
+
+    public async execute({ sqlText, binds }: { sqlText: string; binds?: snowflake.Binds }): Promise<any[] | undefined> {
+        const snowflake = await this.pool.acquire()
+        try {
+            return await new Promise((resolve, reject) =>
+                snowflake.execute({
+                    sqlText,
+                    binds,
+                    complete: function (err, _stmt, rows) {
+                        if (err) {
+                            console.error('Error executing Snowflake query: ', { sqlText, error: err.message })
+                            reject(err)
+                        } else {
+                            resolve(rows)
+                        }
+                    },
+                })
+            )
+        } finally {
+            await this.pool.release(snowflake)
+        }
+    }
+
+    private createConnectionPool(account: string, username: string, password: string, specifiedRole?: string): Snowflake['pool'] {
+        const roleConfig = specifiedRole ? { role: specifiedRole } : {}
+        return createPool(
+            {
+                create: async () => {
+                    const connection = snowflake.createConnection({
+                        account,
+                        username,
+                        password,
+                        database: this.database,
+                        schema: this.dbschema,
+                        ...roleConfig
+                    })
+
+                    await new Promise<string>((resolve, reject) =>
+                        connection.connect((err, conn) => {
+                            if (err) {
+                                console.error('Error connecting to Snowflake: ' + err.message)
+                                reject(err)
+                            } else {
+                                resolve(conn.getId())
+                            }
+                        })
+                    )
+
+                    return connection
+                },
+                destroy: async (connection) => {
+                    await new Promise<void>((resolve, reject) =>
+                        connection.destroy(function (err) {
+                            if (err) {
+                                console.error('Error disconnecting from Snowflake:' + err.message)
+                                reject(err)
+                            } else {
+                                resolve()
+                            }
+                        })
+                    )
+                },
+            },
+            {
+                min: 1,
+                max: 1,
+                autostart: true,
+                fifo: true,
+            }
+        )
+    }
+
+    async uploadToS3(events: TableRow[], meta: SnowflakePluginInput) {
+        if (!this.s3connector) {
+            throw new Error('S3 connector not setup correctly!')
+        }
+        const { config, cache } = meta
+
+        const date = new Date().toISOString()
+        const [day, time] = date.split('T')
+        const dayTime = `${day.split('-').join('')}-${time.split(':').join('')}`
+        const suffix = randomBytes(8).toString('hex')
+
+        let csvString =
+            'uuid,event,properties,elements,people_set,people_set_once,distinct_id,team_id,ip,site_url,timestamp\n'
+
+        for (let i = 0; i < events.length; ++i) {
+            const {
+                uuid,
+                event,
+                properties,
+                elements,
+                people_set,
+                people_set_once,
+                distinct_id,
+                team_id,
+                ip,
+                site_url,
+                timestamp,
+            } = events[i]
+
+            const d = CSV_FIELD_DELIMITER
+            // order is important
+            csvString += `${uuid}${d}${event}${d}${properties}${d}${elements}${d}${people_set}${d}${people_set_once}${d}${distinct_id}${d}${team_id}${d}${ip}${d}${site_url}${d}${timestamp}`
+
+            if (i !== events.length - 1) {
+                csvString += '\n'
+            }
+        }
+
+        const fileName = `snowflake-export-${day}-${dayTime}-${suffix}.csv`
+
+        const params = {
+            Bucket: config.s3BucketName,
+            Key: fileName,
+            Body: Buffer.from(csvString, 'utf8'),
+        }
+
+        console.log(`Flushing ${events.length} events!`)
+        await new Promise<void>((resolve, reject) => {
+            this.s3connector!.upload(params, async (err: Error, _: ManagedUpload.SendData) => {
+                if (err) {
+                    console.error(`Error uploading to S3: ${err.message}`)
+                    reject()
+                }
+                console.log(
+                    `Uploaded ${events.length} event${events.length === 1 ? '' : 's'} to bucket ${config.s3BucketName}`
+                )
+                resolve()
+            })
+        })
+        await cache.lpush(REDIS_FILES_LIST_KEY, [fileName])
+    }
+
+    async copyIntoTableFromStage(files: string[], purge = false) {
+        let filesList = ''
+        for (let i = 0; i < files.length; ++i) {
+            filesList += `'${files[i]}'`
+            if (i !== files.length-1) {
+                filesList += ','
+            }
+        }
+
+        await this.execute({
+            sqlText: `USE WAREHOUSE ${this.warehouse};`,
+        })
+
+        await this.execute({
+            sqlText: `COPY INTO "${this.database}"."${this.dbschema}"."${this.table}"
+            FROM @"${this.database}"."${this.dbschema}".${this.stage}
+            FILES = ( ${filesList} )
+            PURGE = ${purge};`,
+        })
     }
 }
+
+const exportTableColumns = TABLE_SCHEMA.map(({ name, type }) => `"${name.toUpperCase()}" ${type}`).join(', ')
+
+const snowflakePlugin: Plugin<SnowflakePluginInput> = {
+    jobs: {
+        retryCopyIntoSnowflake: async (payload: RetryCopyIntoJobPayload, { global, jobs }) => {
+            if (payload.retriesPerformedSoFar >= 15) {
+                return
+            }
+            try {
+                await global.snowflake.copyIntoTableFromStage(payload.filesStagedForCopy, global.purgeEventsFromStage)
+            } catch {
+                const nextRetrySeconds = 2 ** payload.retriesPerformedSoFar * 3
+                await jobs.retryCopyIntoSnowflake({ retriesPerformedSoFar: payload.retriesPerformedSoFar+1, filesStagedForCopy: payload.filesStagedForCopy }).runIn(nextRetrySeconds, 'seconds')
+                console.error(`Failed to copy ${String(payload.filesStagedForCopy)} from S3 into Snowflake. Retrying in ${nextRetrySeconds}s.`)
+            }
+        },
+    },
+
+    async setupPlugin(meta) {
+        const { global, config } = meta
+        const { account, username, password, dbschema, table, stage, database, role, warehouse } = config
+        // Prepare for working with Snowflake
+        global.snowflake = new Snowflake({
+            account,
+            username,
+            password,
+            dbschema,
+            table,
+            stage,
+            database,
+            warehouse,
+            specifiedRole: role,
+        })
+
+        // Create table
+        await global.snowflake.createTableIfNotExists(exportTableColumns)
+
+        global.purgeEventsFromStage = config.purgeFromStage === 'Yes'
+
+        global.useS3 = config.stageToUse === 'S3'
+        if (global.useS3) {
+            global.snowflake.createS3Connector(
+                config.awsAccessKeyId,
+                config.awsSecretAccessKey,
+                config.awsRegion,
+                config.s3BucketName
+            )
+        }
+
+        // Create stage
+        await global.snowflake.createStageIfNotExists()
+
+        global.eventsToIgnore = new Set<string>((config.eventsToIgnore || '').split(',').map((event) => event.trim()))
+    },
+
+    async teardownPlugin({ global }) {
+        await global.snowflake.clear()
+    },
+
+    async exportEvents(events, meta) {
+        const { global, config } = meta
+        const rows = events.filter((event) => !global.eventsToIgnore.has(event.event.trim())).map(transformEventToRow)
+        if (rows.length) {
+            console.info(
+                `Saving batch of ${rows.length} event${rows.length !== 1 ? 's' : ''} to Snowflake stage "${
+                    config.stage
+                }"`
+            )
+        } else {
+            console.info(`Skipping an empty batch of events`)
+        }
+        try {
+            await global.snowflake.uploadToS3(rows, meta)
+        } catch (error) {
+            throw new RetryError()
+        }
+    },
+
+    async runEveryMinute({ cache, global, jobs }) {
+        const filesStagedLength = await cache.llen(REDIS_FILES_LIST_KEY)
+        if (!filesStagedLength) {
+            return
+        }
+        const filesStagedForCopy = await cache.lrange(REDIS_FILES_LIST_KEY, 0, filesStagedLength)
+        const lastRun = await cache.get('lastRun', null)
+        const ONE_HOUR = 60 * 60 * 1000
+        const timeNow = new Date().getTime()
+        if (lastRun && timeNow - Number(lastRun) < ONE_HOUR) {
+            return
+        }
+        await cache.set('lastRun', timeNow)
+        if (global.useS3) {
+            console.log(`Copying ${String(filesStagedForCopy)} from S3 into Snowflake`)
+            try {
+                await global.snowflake.copyIntoTableFromStage(filesStagedForCopy, global.purgeEventsFromStage)
+            } catch {
+                await jobs.retryCopyIntoSnowflake({ retriesPerformedSoFar: 0, filesStagedForCopy: filesStagedForCopy }).runIn(3, 'seconds')
+                console.error(`Failed to copy ${String(filesStagedForCopy)} from S3 into Snowflake. Retrying in 3s.`)
+            }
+        }
+        await cache.expire(REDIS_FILES_LIST_KEY, 0)
+    },
+}
+
+export default snowflakePlugin

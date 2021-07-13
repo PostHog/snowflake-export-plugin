@@ -7,7 +7,7 @@
     "config": [
         {
             "key": "account",
-            "name": "Account",
+            "name": "Snowflake account",
             "type": "string",
             "hint": "In the format of \"ab12345\" or \"ab12345.region.cloud\"",
             "required": true
@@ -47,7 +47,7 @@
         },
         {
             "key": "warehouse",
-            "name": "Virtual Warehouse to use for copying files",
+            "name": "Virtual warehouse to use for copying files",
             "required": true,
             "type": "string"
         },
@@ -73,7 +73,7 @@
         },
         {
             "key": "bucketName",
-            "name": "Bucket Name",
+            "name": "Bucket name",
             "type": "string",
             "required": true
         },
@@ -86,14 +86,14 @@
         },
         {
             "key": "awsAccessKeyId",
-            "name": "AWS Access Key ID",
+            "name": "AWS access key ID",
             "type": "string",
             "visible_if": [["stageToUse", "S3"]],
             "required_if": [["stageToUse", "S3"]]
         },
         {
             "key": "awsSecretAccessKey",
-            "name": "AWS Secret Access Key",
+            "name": "AWS secret access key",
             "type": "string",
             "secret": true,
             "visible_if": [["stageToUse", "S3"]],
@@ -109,7 +109,7 @@
         },
         {
             "key": "storageIntegrationName",
-            "name": "GCS Storage Integration name",
+            "name": "GCS storage integration name",
             "type": "string",
             "hint": "Follow [these instructions](https://docs.snowflake.com/en/user-guide/data-load-gcs-config.html) to get this.",
             "visible_if": [["stageToUse", "GCS"]],

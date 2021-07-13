@@ -2,22 +2,16 @@
 
 Export events to a Snowflake table regularly.
 
-## How This Works
+## What This Does
 
 This plugin uses a Snowflake external stage to stage events in object storage - Amazon S3 or Google Cloud Storage. Staged events (stored in object storage as files containing event batches) are then copied into the final destination – your Snowflake table – once an hour.
 
-This requires you to have an S3/GCS bucket and an AWS/GCP user with permissions to access that bucket in order to use this plugin, in addition to your Snowflake credentials.
+Prerequisites:
+- a Snowflake user
+- an S3 _or_ GCS bucket
+- an AWS _or_ GCP user with permissions to access that bucket in order to use this plugin
 
-### Amazon S3 Configuration
-
-1. Create a new S3 bucket, preferably in the same AWS region as your Snowflake instance.
-2. Follow [this Snowflake guide on S3](https://docs.snowflake.com/en/user-guide/data-load-s3-config-aws-iam-user.html) to configure AWS IAM User Credentials to Access Amazon S3. However, instead of doing step 3 yourself, input the AWS Key ID and Secret Key in the appropriate plugin configuration options. We'll take care of creating the stage for you.
-
-### Google Cloud Storage Configuration
-
-1. Create a new GCS bucket.
-2. Follow [this Snowflake guide on GCS](https://docs.snowflake.com/en/user-guide/data-load-gcs-config.html) to create a storage integration and generate a user for Snowflake to use when accessing your bucket. Make sure not to skip over any part of the guide!
-3. Download the service accoun credentials JSON file and upload it in the configuration step of this plugin.
+## How to Set This Up
 
 ### Snowflake Configuration
 
@@ -28,6 +22,17 @@ This requires you to have an S3/GCS bucket and an AWS/GCP user with permissions 
     ```sql
     GRANT USAGE ON INTEGRATION <your_gcs_integration_name> TO ROLE <plugin_user_role>
     ```
+
+### Amazon S3 Configuration
+
+1. Create a new S3 bucket, preferably in the same AWS region as your Snowflake instance.
+2. Follow [this Snowflake guide on S3](https://docs.snowflake.com/en/user-guide/data-load-s3-config-aws-iam-user.html) to configure AWS IAM User Credentials to Access Amazon S3. However, instead of doing step 3 yourself, input the AWS Key ID and Secret Key in the appropriate plugin configuration options. We'll take care of creating the stage for you.
+
+### Google Cloud Storage Configuration
+
+1. Create a new GCS bucket.
+2. Follow [this Snowflake guide on GCS](https://docs.snowflake.com/en/user-guide/data-load-gcs-config.html) to create a storage integration and generate a user for Snowflake to use when accessing your bucket. Make sure not to skip over any part of the guide!
+3. Download the service account credentials JSON file and upload it in the configuration step of this plugin.
 
 ## Questions?
 

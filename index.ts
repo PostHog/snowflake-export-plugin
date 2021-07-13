@@ -129,7 +129,7 @@ function transformEventToRow(fullEvent: PluginEvent): TableRow {
     }
 }
 
-function generateFileName(): string {
+function generateCsvFileName(): string {
     const date = new Date().toISOString()
     const [day, time] = date.split('T')
     const dayTime = `${day.split('-').join('')}-${time.split(':').join('')}`
@@ -139,31 +139,17 @@ function generateFileName(): string {
 }
 
 function generateCsvString(events: TableRow[]): string {
-    let csvString =
-        'uuid,event,properties,elements,people_set,people_set_once,distinct_id,team_id,ip,site_url,timestamp\n'
+    const columns: (keyof TableRow)[] =
+        ['uuid','event','properties','elements','people_set','people_set_once','distinct_id','team_id','ip','site_url','timestamp']
+    const csvHeader = columns.join(',')
+    const csvRows: string[] = [csvHeader]
     for (let i = 0; i < events.length; ++i) {
-        const {
-            uuid,
-            event,
-            properties,
-            elements,
-            people_set,
-            people_set_once,
-            distinct_id,
-            team_id,
-            ip,
-            site_url,
-            timestamp,
-        } = events[i]
-        const d = CSV_FIELD_DELIMITER
-        // order is important
-        csvString += `${uuid}${d}${event}${d}${properties}${d}${elements}${d}${people_set}${d}${people_set_once}${d}${distinct_id}${d}${team_id}${d}${ip}${d}${site_url}${d}${timestamp}`
-        if (i !== events.length - 1) {
-            csvString += '\n'
-        }
+        const currentEvent = events[i]
+        csvRows.push(
+            columns.map((column) => currentEvent[column].toString()).join(CSV_FIELD_DELIMITER)
+        )
     }
-
-    return csvString
+    return csvRows.join('\n')
 }
 
 class Snowflake {
@@ -363,7 +349,7 @@ class Snowflake {
         const { config, cache } = meta
 
         const csvString = generateCsvString(events)
-        const fileName = generateFileName()
+        const fileName = generateCsvFileName()
 
         const params = {
             Bucket: config.bucketName,
@@ -387,12 +373,12 @@ class Snowflake {
         await cache.lpush(REDIS_FILES_LIST_KEY, [fileName])
     }
 
-    async uploadToGCS(events: TableRow[], { cache }: SnowflakePluginInput) {
+    async uploadToGcs(events: TableRow[], { cache }: SnowflakePluginInput) {
         if (!this.gcsConnector) {
             throw new Error('GCS connector not setup correctly!')
         }
         const csvString = generateCsvString(events)
-        const fileName = generateFileName()
+        const fileName = generateCsvFileName()
 
         // some minor hackiness to upload without access to the filesystem
         const dataStream = new PassThrough()
@@ -420,14 +406,6 @@ class Snowflake {
     }
 
     async copyIntoTableFromStage(files: string[], purge = false) {
-        let filesList = ''
-        for (let i = 0; i < files.length; ++i) {
-            filesList += `'${files[i]}'`
-            if (i !== files.length - 1) {
-                filesList += ','
-            }
-        }
-
         await this.execute({
             sqlText: `USE WAREHOUSE ${this.warehouse};`,
         })
@@ -435,7 +413,7 @@ class Snowflake {
         await this.execute({
             sqlText: `COPY INTO "${this.database}"."${this.dbschema}"."${this.table}"
             FROM @"${this.database}"."${this.dbschema}".${this.stage}
-            FILES = ( ${filesList} )
+            FILES = ( ${files.map(file => `'${file}'`).join(',')} )
             PURGE = ${purge};`,
         })
     }
@@ -462,7 +440,7 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
                 console.error(
                     `Failed to copy ${String(
                         payload.filesStagedForCopy
-                    )} from S3 into Snowflake. Retrying in ${nextRetrySeconds}s.`
+                    )} from object storage into Snowflake. Retrying in ${nextRetrySeconds}s.`
                 )
             }
         },
@@ -547,7 +525,7 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
             if (global.useS3) {
                 await global.snowflake.uploadToS3(rows, meta)
             } else {
-                await global.snowflake.uploadToGCS(rows, meta)
+                await global.snowflake.uploadToGcs(rows, meta)
             }
         } catch (error) {
             throw new RetryError()
@@ -564,17 +542,17 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
         const ONE_HOUR = 60 * 60 * 1000
         const timeNow = new Date().getTime()
         if (lastRun && timeNow - Number(lastRun) < ONE_HOUR) {
-            //return
+            return
         }
         await cache.set('lastRun', timeNow)
-        console.log(`Copying ${String(filesStagedForCopy)} from S3 into Snowflake`)
+        console.log(`Copying ${String(filesStagedForCopy)} from object storage into Snowflake`)
         try {
             await global.snowflake.copyIntoTableFromStage(filesStagedForCopy, global.purgeEventsFromStage)
         } catch {
             await jobs
                 .retryCopyIntoSnowflake({ retriesPerformedSoFar: 0, filesStagedForCopy: filesStagedForCopy })
                 .runIn(3, 'seconds')
-            console.error(`Failed to copy ${String(filesStagedForCopy)} from S3 into Snowflake. Retrying in 3s.`)
+            console.error(`Failed to copy ${String(filesStagedForCopy)} from object storage into Snowflake. Retrying in 3s.`)
         }
         await cache.expire(REDIS_FILES_LIST_KEY, 0)
     },

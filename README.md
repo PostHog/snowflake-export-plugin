@@ -1,6 +1,6 @@
 # Snowflake Export Plugin
 
-Sends events to a SnowFlake instance on ingestion.
+Sends events to a Snowflake instance on ingestion.
 
 ## Installation Instructions
 

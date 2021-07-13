@@ -14,13 +14,13 @@
         },
         {
             "key": "username",
-            "name": "Snowflake Username",
+            "name": "Snowflake username",
             "type": "string",
             "required": true
         },
         {
             "key": "password",
-            "name": "Snowflake Password",
+            "name": "Snowflake password",
             "type": "string",
             "required": false,
             "secret": true
@@ -59,7 +59,7 @@
         },
         {
             "key": "stageToUse",
-            "name": "Stage Type",
+            "name": "Stage type",
             "type": "choice",
             "required": true,
             "choices": ["S3", "GCS"]
@@ -101,7 +101,7 @@
         },
         {
             "key": "awsRegion",
-            "name": "S3 Bucket Region",
+            "name": "S3 bucket region",
             "type": "string",
             "hint": "We recommend using the same region as your Snowflake instance.",
             "visible_if": [["stageToUse", "S3"]],
@@ -117,7 +117,7 @@
         },
         {
             "key": "gcsCredentials",
-            "name": "GCS Credentials",
+            "name": "GCS credentials file",
             "type": "attachment",
             "hint": "This should be a JSON file. Instructions on how to get this file can be found in [this Google Cloud Tutorial](https://cloud.google.com/bigquery/docs/reference/libraries#setting_up_authentication).",
             "visible_if": [["stageToUse", "GCS"]],

@@ -16,8 +16,8 @@ This requires you to have an S3/GCS bucket and an AWS/GCP user with permissions 
 ### Google Cloud Storage Configuration
 
 1. Create a new GCS bucket.
-2. Follow [this Snowflake guide on GCS](https://docs.snowflake.com/en/user-guide/data-load-gcs-config.html) to create a storage integration and generate a user for Snowflake to use when accessing your bucket.
-3. Download the credentials JSON file and upload it in the configuration step of this plugin.
+2. Follow [this Snowflake guide on GCS](https://docs.snowflake.com/en/user-guide/data-load-gcs-config.html) to create a storage integration and generate a user for Snowflake to use when accessing your bucket. Make sure not to skip over any part of the guide!
+3. Download the service accoun credentials JSON file and upload it in the configuration step of this plugin.
 
 ### Snowflake Configuration
 

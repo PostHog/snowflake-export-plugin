@@ -351,11 +351,11 @@ class Snowflake {
         const { config, cache, global } = meta
 
         const csvString = generateCsvString(events)
-        const fileName = generateCsvFileName()
+        const fileName = `${global.parsedBucketPath}${generateCsvFileName()}`
 
         const params = {
             Bucket: config.bucketName,
-            Key: `${global.parsedBucketPath}${fileName}`,
+            Key: fileName,
             Body: Buffer.from(csvString, 'utf8'),
         }
 
@@ -380,11 +380,11 @@ class Snowflake {
             throw new Error('GCS connector not setup correctly!')
         }
         const csvString = generateCsvString(events)
-        const fileName = generateCsvFileName()
+        const fileName = `${global.parsedBucketPath}${generateCsvFileName()}`
 
         // some minor hackiness to upload without access to the filesystem
         const dataStream = new PassThrough()
-        const gcFile = this.gcsConnector.file(`${global.parsedBucketPath}${fileName}`)
+        const gcFile = this.gcsConnector.file(fileName)
 
         dataStream.push(csvString)
         dataStream.push(null)

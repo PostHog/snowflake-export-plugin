@@ -239,6 +239,7 @@ class Snowflake {
     }
 
     public async createStageIfNotExists(useS3: boolean, bucketName: string): Promise<void> {
+        bucketName = bucketName.endsWith('/') ? bucketName : `${bucketName}/`
         if (useS3) {
             if (!this.s3Options) {
                 throw new Error('S3 connector not initialized correctly.')
@@ -506,7 +507,16 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
 
         global.eventsToIgnore = new Set<string>((config.eventsToIgnore || '').split(',').map((event) => event.trim()))
 
-        global.parsedBucketPath = !config.bucketPath || config.bucketPath.endsWith('/') ? config.bucketPath : `${config.bucketPath}/`
+        let bucketPath = config.bucketPath
+        if (bucketPath && !bucketPath.endsWith('/')) {
+            bucketPath = `${config.bucketPath}/`
+        }
+
+        if (bucketPath.startsWith('/')) {
+            bucketPath = bucketPath.slice(1)
+        }
+
+        global.parsedBucketPath = bucketPath
     },
 
     async teardownPlugin({ global }) {

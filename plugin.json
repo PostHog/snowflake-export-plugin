@@ -79,7 +79,7 @@
         },
         {
             "key": "bucketPath",
-            "name": "A path to where the export files should be stored in your bucket",
+            "name": "Optional path under which the staged events should be stored in your bucket",
             "hint": "E.g. `posthog/exports/`",
             "type": "string",
             "default": ""

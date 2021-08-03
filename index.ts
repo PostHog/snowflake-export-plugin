@@ -431,6 +431,7 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
                 return
             }
             try {
+                console.log('Retrying COPY INTO operation')
                 await global.snowflake.copyIntoTableFromStage(payload.filesStagedForCopy, global.purgeEventsFromStage)
             } catch {
                 const nextRetrySeconds = 2 ** payload.retriesPerformedSoFar * 3

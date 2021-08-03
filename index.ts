@@ -13,7 +13,6 @@ interface SnowflakePluginInput {
         eventsToIgnore: Set<string>
         useS3: boolean
         purgeEventsFromStage: boolean
-        parsedBucketPath: string
     }
     config: {
         account: string
@@ -33,7 +32,6 @@ interface SnowflakePluginInput {
         role?: string
         stageToUse: 'S3' | 'Google Cloud Storage'
         purgeFromStage: 'Yes' | 'No'
-        bucketPath: string
     }
     cache: CacheExtension
 }
@@ -349,10 +347,10 @@ class Snowflake {
         if (!this.s3connector) {
             throw new Error('S3 connector not setup correctly!')
         }
-        const { config, cache, global } = meta
+        const { config, cache } = meta
 
         const csvString = generateCsvString(events)
-        const fileName = `${global.parsedBucketPath}${generateCsvFileName()}`
+        const fileName = generateCsvFileName()
 
         const params = {
             Bucket: config.bucketName,
@@ -376,12 +374,12 @@ class Snowflake {
         await cache.lpush(REDIS_FILES_LIST_KEY, [fileName])
     }
 
-    async uploadToGcs(events: TableRow[], { cache, global }: SnowflakePluginInput) {
+    async uploadToGcs(events: TableRow[], { cache }: SnowflakePluginInput) {
         if (!this.gcsConnector) {
             throw new Error('GCS connector not setup correctly!')
         }
         const csvString = generateCsvString(events)
-        const fileName = `${global.parsedBucketPath}${generateCsvFileName()}`
+        const fileName = generateCsvFileName()
 
         // some minor hackiness to upload without access to the filesystem
         const dataStream = new PassThrough()

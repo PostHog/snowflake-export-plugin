@@ -78,6 +78,13 @@
             "required": true
         },
         {
+            "key": "bucketPath",
+            "name": "A path to where the export files should be stored in your bucket",
+            "hint": "E.g. `posthog/exports/`",
+            "type": "string",
+            "default": ""
+        },
+        {
             "key": "purgeFromStage",
             "name": "Purge events from stage after copying?",
             "type": "choice",

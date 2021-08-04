@@ -136,6 +136,14 @@
             "type": "string",
             "default": "$snapshot, $feature_flag_called",
             "hint": "Comma separated list of events to ignore"
+        },
+        {
+            "key": "retryCopyIntoOperations",
+            "name": "[ADVANCED] Retry failed COPY INTO operations?",
+            "type": "choice",
+            "choices": ["Yes", "No"],
+            "default": "Yes",
+            "hint": "**Do not change this option unless you really know what you're doing!**"
         }
     ]
 }

@@ -1,6 +1,6 @@
 import * as snowflake from 'snowflake-sdk'
 import { createPool, Pool } from 'generic-pool'
-import { PluginEvent, Plugin, RetryError, CacheExtension } from '@posthog/plugin-scaffold'
+import { PluginEvent, Plugin, RetryError, CacheExtension, Meta } from '@posthog/plugin-scaffold'
 import { randomBytes } from 'crypto'
 import { ManagedUpload } from 'aws-sdk/clients/s3'
 import { S3 } from 'aws-sdk'
@@ -34,6 +34,7 @@ interface SnowflakePluginInput {
         stageToUse: 'S3' | 'Google Cloud Storage'
         purgeFromStage: 'Yes' | 'No'
         bucketPath: string
+        retryCopyIntoOperations: 'Yes' | 'No'
     }
     cache: CacheExtension
 }
@@ -426,8 +427,8 @@ const exportTableColumns = TABLE_SCHEMA.map(({ name, type }) => `"${name.toUpper
 
 const snowflakePlugin: Plugin<SnowflakePluginInput> = {
     jobs: {
-        retryCopyIntoSnowflake: async (payload: RetryCopyIntoJobPayload, { global, jobs }) => {
-            if (payload.retriesPerformedSoFar >= 15) {
+        retryCopyIntoSnowflake: async (payload: RetryCopyIntoJobPayload, { global, jobs, config }) => {
+            if (payload.retriesPerformedSoFar >= 15 || config.retryCopyIntoOperations === 'No') {
                 return
             }
             try {
@@ -520,7 +521,12 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
         global.parsedBucketPath = bucketPath
     },
 
-    async teardownPlugin({ global }) {
+    async teardownPlugin(meta) {
+        const { global } = meta
+        try {
+            // prevent some issues with plugin reloads
+            await copyIntoSnowflake(meta, true)
+        } catch {}
         await global.snowflake.clear()
     },
 
@@ -547,30 +553,34 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
         }
     },
 
-    async runEveryMinute({ cache, global, jobs }) {
-        const filesStagedLength = await cache.llen(REDIS_FILES_LIST_KEY)
-        if (!filesStagedLength) {
-            return
-        }
-        const filesStagedForCopy = await cache.lrange(REDIS_FILES_LIST_KEY, 0, filesStagedLength)
-        const lastRun = await cache.get('lastRun', null)
-        const ONE_HOUR = 60 * 60 * 1000
-        const timeNow = new Date().getTime()
-        if (lastRun && timeNow - Number(lastRun) < ONE_HOUR) {
-            return
-        }
-        await cache.set('lastRun', timeNow)
-        console.log(`Copying ${String(filesStagedForCopy)} from object storage into Snowflake`)
-        try {
-            await global.snowflake.copyIntoTableFromStage(filesStagedForCopy, global.purgeEventsFromStage)
-        } catch {
-            await jobs
-                .retryCopyIntoSnowflake({ retriesPerformedSoFar: 0, filesStagedForCopy: filesStagedForCopy })
-                .runIn(3, 'seconds')
-            console.error(`Failed to copy ${String(filesStagedForCopy)} from object storage into Snowflake. Retrying in 3s.`)
-        }
-        await cache.expire(REDIS_FILES_LIST_KEY, 0)
+    async runEveryMinute(meta) {
+        await copyIntoSnowflake(meta)
     },
+}
+
+async function copyIntoSnowflake({ cache, global, jobs }: Meta<SnowflakePluginInput>, force = false) {
+    const filesStagedLength = await cache.llen(REDIS_FILES_LIST_KEY)
+    if (!filesStagedLength) {
+        return
+    }
+    const filesStagedForCopy = await cache.lrange(REDIS_FILES_LIST_KEY, 0, filesStagedLength)
+    const lastRun = await cache.get('lastRun', null)
+    const ONE_HOUR = 60 * 60 * 1000
+    const timeNow = new Date().getTime()
+    if (!force && lastRun && timeNow - Number(lastRun) < ONE_HOUR) {
+        // return
+    }
+    await cache.set('lastRun', timeNow)
+    console.log(`Copying ${String(filesStagedForCopy)} from object storage into Snowflake`)
+    try {
+        await global.snowflake.copyIntoTableFromStage(filesStagedForCopy, global.purgeEventsFromStage)
+    } catch {
+        await jobs
+            .retryCopyIntoSnowflake({ retriesPerformedSoFar: 0, filesStagedForCopy: filesStagedForCopy })
+            .runIn(3, 'seconds')
+        console.error(`Failed to copy ${String(filesStagedForCopy)} from object storage into Snowflake. Retrying in 3s.`)
+    }
+    await cache.expire(REDIS_FILES_LIST_KEY, 0)
 }
 
 export default snowflakePlugin

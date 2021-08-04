@@ -78,6 +78,13 @@
             "required": true
         },
         {
+            "key": "bucketPath",
+            "name": "Optional path under which the staged events should be stored in your bucket",
+            "hint": "E.g. `posthog/exports/`",
+            "type": "string",
+            "default": ""
+        },
+        {
             "key": "purgeFromStage",
             "name": "Purge events from stage after copying?",
             "type": "choice",
@@ -129,6 +136,14 @@
             "type": "string",
             "default": "$snapshot, $feature_flag_called",
             "hint": "Comma separated list of events to ignore"
+        },
+        {
+            "key": "retryCopyIntoOperations",
+            "name": "[ADVANCED] Retry failed COPY INTO operations?",
+            "type": "choice",
+            "choices": ["Yes", "No"],
+            "default": "Yes",
+            "hint": "**Do not change this option unless you really know what you're doing!**"
         }
     ]
 }

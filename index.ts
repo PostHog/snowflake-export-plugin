@@ -568,7 +568,7 @@ async function copyIntoSnowflake({ cache, global, jobs }: Meta<SnowflakePluginIn
     const ONE_HOUR = 60 * 60 * 1000
     const timeNow = new Date().getTime()
     if (!force && lastRun && timeNow - Number(lastRun) < ONE_HOUR) {
-        // return
+        return
     }
     await cache.set('lastRun', timeNow)
     console.log(`Copying ${String(filesStagedForCopy)} from object storage into Snowflake`)

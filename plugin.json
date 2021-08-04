@@ -78,13 +78,6 @@
             "required": true
         },
         {
-            "key": "bucketPath",
-            "name": "Optional path under which the staged events should be stored in your bucket",
-            "hint": "E.g. `posthog/exports/`",
-            "type": "string",
-            "default": ""
-        },
-        {
             "key": "purgeFromStage",
             "name": "Purge events from stage after copying?",
             "type": "choice",

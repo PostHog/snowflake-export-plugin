@@ -13,6 +13,7 @@ interface SnowflakePluginInput {
         eventsToIgnore: Set<string>
         useS3: boolean
         purgeEventsFromStage: boolean
+        parsedBucketPath: string
     }
     config: {
         account: string
@@ -32,6 +33,7 @@ interface SnowflakePluginInput {
         role?: string
         stageToUse: 'S3' | 'Google Cloud Storage'
         purgeFromStage: 'Yes' | 'No'
+        bucketPath: string
     }
     cache: CacheExtension
 }
@@ -237,6 +239,7 @@ class Snowflake {
     }
 
     public async createStageIfNotExists(useS3: boolean, bucketName: string): Promise<void> {
+        bucketName = bucketName.endsWith('/') ? bucketName : `${bucketName}/`
         if (useS3) {
             if (!this.s3Options) {
                 throw new Error('S3 connector not initialized correctly.')
@@ -346,10 +349,10 @@ class Snowflake {
         if (!this.s3connector) {
             throw new Error('S3 connector not setup correctly!')
         }
-        const { config, cache } = meta
+        const { config, cache, global } = meta
 
         const csvString = generateCsvString(events)
-        const fileName = generateCsvFileName()
+        const fileName = `${global.parsedBucketPath}${generateCsvFileName()}`
 
         const params = {
             Bucket: config.bucketName,
@@ -373,12 +376,12 @@ class Snowflake {
         await cache.lpush(REDIS_FILES_LIST_KEY, [fileName])
     }
 
-    async uploadToGcs(events: TableRow[], { cache }: SnowflakePluginInput) {
+    async uploadToGcs(events: TableRow[], { cache, global }: SnowflakePluginInput) {
         if (!this.gcsConnector) {
             throw new Error('GCS connector not setup correctly!')
         }
         const csvString = generateCsvString(events)
-        const fileName = generateCsvFileName()
+        const fileName = `${global.parsedBucketPath}${generateCsvFileName()}`
 
         // some minor hackiness to upload without access to the filesystem
         const dataStream = new PassThrough()
@@ -504,6 +507,17 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
         await global.snowflake.createStageIfNotExists(global.useS3, config.bucketName)
 
         global.eventsToIgnore = new Set<string>((config.eventsToIgnore || '').split(',').map((event) => event.trim()))
+
+        let bucketPath = config.bucketPath
+        if (bucketPath && !bucketPath.endsWith('/')) {
+            bucketPath = `${config.bucketPath}/`
+        }
+
+        if (bucketPath.startsWith('/')) {
+            bucketPath = bucketPath.slice(1)
+        }
+
+        global.parsedBucketPath = bucketPath
     },
 
     async teardownPlugin({ global }) {

@@ -74,6 +74,7 @@
         {
             "key": "bucketName",
             "name": "Bucket name",
+            "hint": "This should be strictly the **name** of your bucket without a path! You can specify a path to store files in below",
             "type": "string",
             "required": true
         },

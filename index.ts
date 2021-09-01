@@ -514,11 +514,11 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
             bucketPath = `${config.bucketPath}/`
         }
 
-        if (bucketPath.startsWith('/')) {
+        if (bucketPath && bucketPath.startsWith('/')) {
             bucketPath = bucketPath.slice(1)
         }
 
-        global.parsedBucketPath = bucketPath
+        global.parsedBucketPath = bucketPath || ''
     },
 
     async teardownPlugin(meta) {

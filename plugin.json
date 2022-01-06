@@ -145,6 +145,22 @@
             "choices": ["Yes", "No"],
             "default": "Yes",
             "hint": "**Do not change this option unless you really know what you're doing!**"
+        },
+        {
+            "key": "debug",
+            "name": "DEBUG",
+            "type": "choice",
+            "choices": ["ON", "OFF"],
+            "default": "OFF",
+            "hint": "Advanced"
+        },
+        {
+            "key": "forceCopy",
+            "name": "Set `FORCE = true` when copying from the bucket?",
+            "type": "choice",
+            "choices": ["Yes", "No"],
+            "default": "No",
+            "hint": "Advanced"
         }
     ]
 }

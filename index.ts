@@ -14,6 +14,8 @@ interface SnowflakePluginInput {
         useS3: boolean
         purgeEventsFromStage: boolean
         parsedBucketPath: string
+        forceCopy: boolean
+        debug: boolean
     }
     config: {
         account: string
@@ -35,6 +37,8 @@ interface SnowflakePluginInput {
         purgeFromStage: 'Yes' | 'No'
         bucketPath: string
         retryCopyIntoOperations: 'Yes' | 'No'
+        forceCopy: 'Yes' | 'No'
+        debug: 'ON' | 'OFF'
     }
     cache: CacheExtension
 }
@@ -248,7 +252,7 @@ class Snowflake {
             await this.execute({
                 sqlText: `CREATE STAGE IF NOT EXISTS "${this.database}"."${this.dbschema}"."${this.stage}"
             URL='s3://${bucketName}'
-            FILE_FORMAT = ( TYPE = 'CSV' SKIP_HEADER = 1 FIELD_DELIMITER = '${CSV_FIELD_DELIMITER}' )
+            FILE_FORMAT = ( TYPE = 'CSV' SKIP_HEADER = 1 FIELD_DELIMITER = '${CSV_FIELD_DELIMITER}', ESCAPE = NONE, ESCAPE_UNENCLOSED_FIELD = NONE )
             CREDENTIALS=(aws_key_id='${this.s3Options.awsAccessKeyId}' aws_secret_key='${this.s3Options.awsSecretAccessKey}')
             ENCRYPTION=(type='AWS_SSE_KMS' kms_key_id = 'aws/key')
             COMMENT = 'S3 Stage used by the PostHog Snowflake export plugin';`,
@@ -264,7 +268,7 @@ class Snowflake {
         await this.execute({
             sqlText: `CREATE STAGE IF NOT EXISTS "${this.database}"."${this.dbschema}"."${this.stage}"
         URL='gcs://${bucketName}'
-        FILE_FORMAT = ( TYPE = 'CSV' SKIP_HEADER = 1 FIELD_DELIMITER = '${CSV_FIELD_DELIMITER}' )
+        FILE_FORMAT = ( TYPE = 'CSV' SKIP_HEADER = 1 FIELD_DELIMITER = '${CSV_FIELD_DELIMITER}', ESCAPE = NONE, ESCAPE_UNENCLOSED_FIELD = NONE )
         STORAGE_INTEGRATION = ${this.gcsOptions.storageIntegrationName}
         COMMENT = 'GCS Stage used by the PostHog Snowflake export plugin';`,
         })
@@ -409,16 +413,26 @@ class Snowflake {
         await cache.lpush(REDIS_FILES_LIST_KEY, [fileName])
     }
 
-    async copyIntoTableFromStage(files: string[], purge = false) {
+    async copyIntoTableFromStage(files: string[], purge = false, forceCopy = false, debug = false) {
+        if (debug) {
+            console.log('Trying to copy events into Snowflake')
+        }
         await this.execute({
             sqlText: `USE WAREHOUSE ${this.warehouse};`,
         })
 
+        const querySqlText = `COPY INTO "${this.database}"."${this.dbschema}"."${this.table}"
+        FROM @"${this.database}"."${this.dbschema}".${this.stage}
+        FILES = ( ${files.map(file => `'${file}'`).join(',')} )
+        ${forceCopy ? `FORCE = true` : ``}
+        FILE_FORMAT
+        PURGE = ${purge};`
+
+        if (debug) {
+            console.log(querySqlText)
+        }
         await this.execute({
-            sqlText: `COPY INTO "${this.database}"."${this.dbschema}"."${this.table}"
-            FROM @"${this.database}"."${this.dbschema}".${this.stage}
-            FILES = ( ${files.map(file => `'${file}'`).join(',')} )
-            PURGE = ${purge};`,
+            sqlText: querySqlText,
         })
     }
 }
@@ -433,7 +447,7 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
             }
             try {
                 console.log('Retrying COPY INTO operation')
-                await global.snowflake.copyIntoTableFromStage(payload.filesStagedForCopy, global.purgeEventsFromStage)
+                await global.snowflake.copyIntoTableFromStage(payload.filesStagedForCopy, global.purgeEventsFromStage, global.forceCopy, global.debug)
             } catch {
                 const nextRetrySeconds = 2 ** payload.retriesPerformedSoFar * 3
                 await jobs
@@ -488,6 +502,9 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
         await global.snowflake.createTableIfNotExists(exportTableColumns)
 
         global.purgeEventsFromStage = config.purgeFromStage === 'Yes'
+        global.debug = config.debug === 'ON'
+        global.forceCopy = config.forceCopy === 'Yes'
+
 
         global.useS3 = config.stageToUse === 'S3'
         if (global.useS3) {
@@ -564,16 +581,23 @@ async function copyIntoSnowflake({ cache, global, jobs }: Meta<SnowflakePluginIn
         return
     }
     const filesStagedForCopy = await cache.lrange(REDIS_FILES_LIST_KEY, 0, filesStagedLength)
+
+    if (global.debug) {
+        console.log('Files staged for copy:', filesStagedForCopy)
+    }
     const lastRun = await cache.get('lastRun', null)
     const ONE_HOUR = 60 * 60 * 1000
     const timeNow = new Date().getTime()
     if (!force && lastRun && timeNow - Number(lastRun) < ONE_HOUR) {
+        if (global.debug) {
+            console.log('Skipping COPY INTO', timeNow, lastRun)
+        }
         return
     }
     await cache.set('lastRun', timeNow)
     console.log(`Copying ${String(filesStagedForCopy)} from object storage into Snowflake`)
     try {
-        await global.snowflake.copyIntoTableFromStage(filesStagedForCopy, global.purgeEventsFromStage)
+        await global.snowflake.copyIntoTableFromStage(filesStagedForCopy, global.purgeEventsFromStage, global.forceCopy, global.debug)
     } catch {
         await jobs
             .retryCopyIntoSnowflake({ retriesPerformedSoFar: 0, filesStagedForCopy: filesStagedForCopy })

@@ -425,7 +425,6 @@ class Snowflake {
         FROM @"${this.database}"."${this.dbschema}".${this.stage}
         FILES = ( ${files.map(file => `'${file}'`).join(',')} )
         ${forceCopy ? `FORCE = true` : ``}
-        FILE_FORMAT
         PURGE = ${purge};`
 
         if (debug) {

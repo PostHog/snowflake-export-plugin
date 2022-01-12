@@ -104,7 +104,7 @@ const TABLE_SCHEMA = [
 ]
 
 const CSV_FIELD_DELIMITER = '|$|'
-const REDIS_FILES_LIST_KEY = '_files_staged_for_copy'
+const REDIS_FILES_LIST_KEY = '__files_staged_for_copy'
 
 function transformEventToRow(fullEvent: PluginEvent): TableRow {
     const { event, properties, $set, $set_once, distinct_id, team_id, site_url, now, sent_at, uuid, ...rest } =
@@ -585,9 +585,9 @@ async function copyIntoSnowflake({ cache, global, jobs }: Meta<SnowflakePluginIn
         console.log('Files staged for copy:', filesStagedForCopy)
     }
     const lastRun = await cache.get('lastRun', null)
-    const ONE_HOUR = 60 * 60 * 1000
+    const MAX_TIME = 10 * 60 * 1000 // 10 min
     const timeNow = new Date().getTime()
-//     if (!force && lastRun && timeNow - Number(lastRun) < ONE_HOUR) {
+//     if (!force && lastRun && timeNow - Number(lastRun) < MAX_TIME) {
 //         if (global.debug) {
 //             console.log('Skipping COPY INTO', timeNow, lastRun)
 //         }

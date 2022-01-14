@@ -104,7 +104,7 @@ const TABLE_SCHEMA = [
 ]
 
 const CSV_FIELD_DELIMITER = '|$|'
-const REDIS_FILES_LIST_KEY = '__files_staged_for_copy'
+const REDIS_FILES_LIST_KEY = 'files_staged_for_copy_into_snowflake'
 
 function transformEventToRow(fullEvent: PluginEvent): TableRow {
     const { event, properties, $set, $set_once, distinct_id, team_id, site_url, now, sent_at, uuid, ...rest } =
@@ -577,6 +577,9 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
 async function copyIntoSnowflake({ cache, global, jobs }: Meta<SnowflakePluginInput>, force = false) {
     const filesStagedLength = await cache.llen(REDIS_FILES_LIST_KEY)
     if (!filesStagedLength) {
+        if (global.debug) {
+            console.log('filesStagedLength', filesStagedLength)
+        }
         return
     }
     const filesStagedForCopy = await cache.lrange(REDIS_FILES_LIST_KEY, 0, filesStagedLength)

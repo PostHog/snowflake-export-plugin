@@ -576,7 +576,7 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
 
 async function copyIntoSnowflake({ cache, global, jobs }: Meta<SnowflakePluginInput>, force = false) {
     if (global.debug) {
-        console.log('Running copyIntoSnowflake')
+        console.info('Running copyIntoSnowflake')
     }
     const filesStagedLength = await cache.llen(REDIS_FILES_LIST_KEY)
     if (!filesStagedLength) {

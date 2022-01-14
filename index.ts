@@ -570,6 +570,7 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
     },
 
     async runEveryMinute(meta) {
+        console.info('runEveryMinute')
         await copyIntoSnowflake(meta)
     },
 }

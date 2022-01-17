@@ -104,7 +104,7 @@ const TABLE_SCHEMA = [
 ]
 
 const CSV_FIELD_DELIMITER = '|$|'
-const REDIS_FILES_LIST_KEY = 'files_staged_for_copy_into_snowflake'
+const REDIS_FILES_LIST_KEY = '_files_staged_for_copy_into_snowflake'
 
 function transformEventToRow(fullEvent: PluginEvent): TableRow {
     const { event, properties, $set, $set_once, distinct_id, team_id, site_url, now, sent_at, uuid, ...rest } =

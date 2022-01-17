@@ -594,12 +594,12 @@ async function copyIntoSnowflake({ cache, global, jobs }: Meta<SnowflakePluginIn
     const lastRun = await cache.get('lastRun', null)
     const MAX_TIME = 10 * 60 * 1000 // 10 min
     const timeNow = new Date().getTime()
-//     if (!force && lastRun && timeNow - Number(lastRun) < MAX_TIME) {
-//         if (global.debug) {
-//             console.log('Skipping COPY INTO', timeNow, lastRun)
-//         }
-//         return
-//     }
+    if (!force && lastRun && timeNow - Number(lastRun) < MAX_TIME) {
+        if (global.debug) {
+            console.log('Skipping COPY INTO', timeNow, lastRun)
+        }
+        return
+    }
     await cache.set('lastRun', timeNow)
     console.log(`Copying ${String(filesStagedForCopy)} from object storage into Snowflake`)
     try {

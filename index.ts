@@ -560,11 +560,13 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
         }
         try {
             if (global.useS3) {
+                console.log('Uploading to S3')
                 await global.snowflake.uploadToS3(rows, meta)
             } else {
                 await global.snowflake.uploadToGcs(rows, meta)
             }
         } catch (error) {
+            console.error(error.message || String(error))
             throw new RetryError()
         }
     },

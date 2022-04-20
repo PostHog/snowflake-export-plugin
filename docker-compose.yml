@@ -1,0 +1,22 @@
+version: "3"
+services:
+  localstack:
+    image: localstack/localstack:0.14.2
+    network_mode: bridge
+    ports:
+      - "127.0.0.1:4566:4566"  # LocalStack Edge Proxy
+    environment:
+      - DEBUG=${DEBUG-}
+      - DATA_DIR=${DATA_DIR-}
+      - LAMBDA_EXECUTOR=${LAMBDA_EXECUTOR-}
+      - HOST_TMP_FOLDER=${TMPDIR:-/tmp/}localstack
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - SERVICES=s3
+    volumes:
+      - "${TMPDIR:-/tmp}/localstack:/tmp/localstack"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+  redis:
+    image: redis:6.2.6-bullseye
+    network_mode: bridge
+    ports: 
+      - "6379:6379"

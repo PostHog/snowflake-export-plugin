@@ -34,6 +34,7 @@ test("handles events", async () => {
     //
     //  1. snowflake retry functionality
     //  2. s3 failure cases
+    //  3. what happens if [workhouse is suspended](https://posthogusers.slack.com/archives/C01GLBKHKQT/p1650526998274619?thread_ts=1649761835.322489&cid=C01GLBKHKQT)
 
     AWS.config.update({
         accessKeyId: "awsAccessKeyId",

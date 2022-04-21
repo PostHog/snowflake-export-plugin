@@ -8,7 +8,18 @@ import { v4 as uuid4 } from "uuid"
 jest.useFakeTimers("legacy")
 
 // Redis is required to handle staging(?) of S3 files to be pushed to snowflake
-const cache = new Redis()
+const redis = new Redis()
+
+// Create something that looks like the expected cache interface. Note it only
+// differs by the addition of the `defaultValue` argument.
+const cache = {
+    ...redis,
+    lpush: redis.lpush.bind(redis),
+    llen: redis.llen.bind(redis),
+    lrange: redis.lrange.bind(redis),
+    set: redis.set.bind(redis),
+    get: (key: string, defaultValue: unknown) => redis.get(key)
+} as any
 
 // Make sure no HTTP requests actually head out into the internet
 nock.disableNetConnect()
@@ -17,6 +28,13 @@ nock.disableNetConnect()
 nock.enableNetConnect("localhost")
 
 test("handles events", async () => {
+    // Checks for the happy path
+    //
+    // TODO: check for:
+    //
+    //  1. snowflake retry functionality
+    //  2. s3 failure cases
+
     AWS.config.update({
         accessKeyId: "awsAccessKeyId",
         secretAccessKey: "awsSecretAccessKey",
@@ -46,55 +64,55 @@ test("handles events", async () => {
             stage: "S3",
             eventsToIgnore: "eventsToIgnore",
             bucketName: bucketName,
-            warehouse: "string",
-            awsAccessKeyId: "string",
-            awsSecretAccessKey: "string",
+            warehouse: "warehouse",
+            awsAccessKeyId: "awsAccessKeyId",
+            awsSecretAccessKey: "awsSecretAccessKey",
             awsRegion: "string",
-            storageIntegrationName: "string",
-            role: "string",
+            storageIntegrationName: "storageIntegrationName",
+            role: "role",
             stageToUse: 'S3' as const,
             purgeFromStage: 'Yes' as const,
-            bucketPath: "string",
+            bucketPath: "bucketPath",
             retryCopyIntoOperations: 'Yes' as const,
             forceCopy: 'Yes' as const,
             debug: 'ON' as const,
-        }, 
-        jobs: {}, 
-        cache: cache, 
+        },
+        jobs: {},
+        cache: cache,
         // Cast to any, as otherwise we don't match plugin call signatures
-        global: {} as any, 
-        storage: {}, 
-        geoip: {}
+        global: {} as any,
+        storage: {} as any,
+        geoip: {} as any
     }
 
     const events = [
-        { 
-            event: "some", 
-            distinct_id: "123", 
-            ip: "10.10.10.10", 
-            site_url: "https://app.posthog.com", 
-            team_id: 1, 
-            now: "2020-01-01T01:01:01Z" 
+        {
+            event: "some",
+            distinct_id: "123",
+            ip: "10.10.10.10",
+            site_url: "https://app.posthog.com",
+            team_id: 1,
+            now: "2020-01-01T01:01:01Z"
         },
-        { 
-            event: "events", 
-            distinct_id: "123", 
-            ip: "10.10.10.10", 
-            site_url: "https://app.posthog.com", 
-            team_id: 1, 
-            now: "2020-01-01T01:01:01Z" 
+        {
+            event: "events",
+            distinct_id: "123",
+            ip: "10.10.10.10",
+            site_url: "https://app.posthog.com",
+            team_id: 1,
+            now: "2020-01-01T01:01:01Z"
         }
     ]
 
-    const snowflakeMock = createSnowflakeMock(snowflakeAccount)
+    const snowflakeMock = createSnowflakeMock(
+        snowflakeAccount,
+    )
 
-    mockSnowflakeLoginApi(snowflakeMock)
-    mockSnowflakeCreateTableApi(snowflakeMock)
-    mockSnowflakeCreateStageApi(snowflakeMock)
     await snowflakePlugin.setupPlugin?.(meta)
-
     await snowflakePlugin.exportEvents?.(events, meta)
+
     await snowflakePlugin.runEveryMinute?.(meta)
+
     await snowflakePlugin.teardownPlugin?.(meta)
 
     // TODO: assert:
@@ -108,11 +126,7 @@ const createSnowflakeMock = (accountName: string) => {
         .defaultReplyHeaders({
             'Content-Type': 'application/json',
         })
-}
-
-const mockSnowflakeLoginApi = (snowflakeMock) => {
-    snowflakeMock
-        .post(/\/session\/v1\/login-request\?requestId=.*&roleName=string/)
+        .post(/\/session\/v1\/login-request\?requestId=.*&roleName=role/)
         .reply(200, JSON.stringify({
             "data": {
                 "token": "token",
@@ -121,22 +135,16 @@ const mockSnowflakeLoginApi = (snowflakeMock) => {
             "message": null,
             "success": true
         }))
-}
-
-const mockSnowflakeCreateTableApi = (snowflakeMock) => {
-    snowflakeMock
         .post(/\/queries\/v1\/query-request\?requestId=.*/)
         .reply(200, JSON.stringify({
             "data": {
-                "getResultUrl": "/queries/create-table-id/result",
+                "getResultUrl": "/queries/query-id/result",
             },
             "code": "333334",
             "message": null,
             "success": true
         }))
-
-    snowflakeMock
-        .get("/queries/create-table-id/result")
+        .get("/queries/query-id/result")
         .reply(200, JSON.stringify({
             "data": {
                 "parameters": [],
@@ -144,38 +152,17 @@ const mockSnowflakeCreateTableApi = (snowflakeMock) => {
                 "rowset": [],
                 "total": 0,
                 "returned": 0,
-                "queryId": "create-table-id",
+                "queryId": "query-id",
                 "queryResultFormat": "json"
             },
             "code": null,
             "message": null,
             "success": true
-        }))
-}
-
-const mockSnowflakeCreateStageApi = (snowflakeMock) => {
-    snowflakeMock
-        .post(/\/queries\/v1\/query-request\?requestId=.*/)
+        })) 
+        .post("/session/logout-request")
         .reply(200, JSON.stringify({
             "data": {
-                "getResultUrl": "/queries/create-stage-id/result",
-            },
-            "code": "333334",
-            "message": null,
-            "success": true
-        }))
-
-    snowflakeMock
-        .get("/queries/create-stage-id/result")
-        .reply(200, JSON.stringify({
-            "data": {
-                "parameters": [],
-                "rowtype": [],
-                "rowset": [],
-                "total": 0,
-                "returned": 0,
-                "queryId": "create-stage-id",
-                "queryResultFormat": "json"
+                "token": "token",
             },
             "code": null,
             "message": null,

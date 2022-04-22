@@ -2,8 +2,9 @@
 import snowflakePlugin from "./index"
 import AWS, { S3 } from 'aws-sdk'
 import Redis from 'ioredis'
-import nock from 'nock'
 import { v4 as uuid4 } from "uuid"
+import { setupServer } from "msw/node"
+import { rest } from "msw"
 
 jest.useFakeTimers("legacy")
 
@@ -18,14 +19,9 @@ const cache = {
     llen: redis.llen.bind(redis),
     lrange: redis.lrange.bind(redis),
     set: redis.set.bind(redis),
+    expire: redis.expire.bind(redis),
     get: (key: string, defaultValue: unknown) => redis.get(key)
 } as any
-
-// Make sure no HTTP requests actually head out into the internet
-nock.disableNetConnect()
-
-// Make sure S3 clients can use localstack
-nock.enableNetConnect("localhost")
 
 test("handles events", async () => {
     // Checks for the happy path
@@ -111,9 +107,7 @@ test("handles events", async () => {
 
     await snowflakePlugin.setupPlugin?.(meta)
     await snowflakePlugin.exportEvents?.(events, meta)
-
     await snowflakePlugin.runEveryMinute?.(meta)
-
     await snowflakePlugin.teardownPlugin?.(meta)
 
     // TODO: assert:
@@ -123,50 +117,70 @@ test("handles events", async () => {
 })
 
 const createSnowflakeMock = (accountName: string) => {
-    return nock(`https://${accountName}.snowflakecomputing.com`)
-        .defaultReplyHeaders({
-            'Content-Type': 'application/json',
-        })
-        .post(/\/session\/v1\/login-request\?requestId=.*&roleName=role/)
-        .reply(200, JSON.stringify({
-            "data": {
-                "token": "token",
-            },
-            "code": null,
-            "message": null,
-            "success": true
-        }))
-        .post(/\/queries\/v1\/query-request\?requestId=.*/)
-        .reply(200, JSON.stringify({
-            "data": {
-                "getResultUrl": "/queries/query-id/result",
-            },
-            "code": "333334",
-            "message": null,
-            "success": true
-        }))
-        .get("/queries/query-id/result")
-        .reply(200, JSON.stringify({
-            "data": {
-                "parameters": [],
-                "rowtype": [],
-                "rowset": [],
-                "total": 0,
-                "returned": 0,
-                "queryId": "query-id",
-                "queryResultFormat": "json"
-            },
-            "code": null,
-            "message": null,
-            "success": true
-        })) 
-        .post("/session/logout-request")
-        .reply(200, JSON.stringify({
-            "data": {
-                "token": "token",
-            },
-            "code": null,
-            "message": null,
-            "success": true
-        }))
+    const db = {
+        tables: [],
+        stages: [],
+        comands: [],
+    }
+
+    const baseUri = `https://${accountName}.snowflakecomputing.com`
+
+    const mock = setupServer(
+        rest.post(`${baseUri}/session/v1/login-request`, (req, res, ctx) => {
+            return res(ctx.json({
+                "data": {
+                    "token": "token",
+                },
+                "code": null,
+                "message": null,
+                "success": true
+            }))
+        }),
+        rest.post(`${baseUri}/queries/v1/query-request`, (req, res, ctx) => {
+            const queryId = uuid4()
+
+            // const sqlText = "create table test" //JSON.parse(req.body).sqlText
+
+            // const tableName = /create table (?<tableName>\w+)/i.exec(sqlText).groups?.tableName
+            // const stageName = /create stage (?<stageName>\w+)/i.exec(sqlText).groups?.stageName
+
+            // if (tableName) {
+            //     db.tables.push(tableName)
+            // }
+
+            // if (stageName) {
+            //     db.stages.push(stageName)
+            // }
+
+            return res(ctx.json({
+                "data": {
+                    "getResultUrl": `/queries/${queryId}/result`,
+                },
+                "code": "333334",
+                "message": null,
+                "success": true
+            }))
+        }),
+        rest.get(`${baseUri}/queries/:queryId/result`, (req, res, ctx) => {
+            return res(ctx.json({
+                "data": {
+                    "parameters": [],
+                    "rowtype": [],
+                    "rowset": [],
+                    "total": 0,
+                    "returned": 0,
+                    "queryId": "query-id",
+                    "queryResultFormat": "json"
+                },
+                "code": null,
+                "message": null,
+                "success": true
+            }))
+        }),
+        rest.post(`${baseUri}/session/logout-request`, (req, res, ctx) => {
+            return res(ctx.status(200))
+        }),
+    )
+
+    mock.listen()
 }

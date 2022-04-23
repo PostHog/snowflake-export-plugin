@@ -9,6 +9,10 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v3
+            - uses: actions/setup-node@v1
+              with:
+                  # Keep in sync with the plugin-server node version
+                  node-version: '16.x'
             - run: docker-compose up -d
             - run: yarn
             - run: yarn test --ci

@@ -1,0 +1,13 @@
+name: Functional tests
+
+on:
+    pull_request:
+
+jobs:
+    functional-tests:
+        name: Run functional tests
+        steps:
+            - uses: actions/checkout@v3
+            - run: docker-compose up -d
+            - run: yarn
+            - run: yarn test

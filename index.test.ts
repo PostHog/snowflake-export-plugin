@@ -117,15 +117,13 @@ test("handles events", async () => {
 })
 
 const createSnowflakeMock = (accountName: string) => {
-    const db = {
-        tables: [],
-        stages: [],
-        comands: [],
-    }
-
+    // Create something that kind of looks like snowflake, albeit not
+    // functional.
     const baseUri = `https://${accountName}.snowflakecomputing.com`
 
     const mock = setupServer(
+        // Before making queries, we need to login via username/password and get
+        // a token we can use for subsequent auth requests.
         rest.post(`${baseUri}/session/v1/login-request`, (req, res, ctx) => {
             return res(ctx.json({
                 "data": {
@@ -136,22 +134,16 @@ const createSnowflakeMock = (accountName: string) => {
                 "success": true
             }))
         }),
+        // The API seems to follow this pattern:
+        //
+        //  1. POST your SQL query up to the API, the resulting resource
+        //     identified via a query id. However, we don't actually need to do
+        //     anything explicitly with this id, rather we use we...
+        //  2. use the getResultUrl to fetch the results of the query
+        //
+        // TODO: handle case when query isn't complete on requesting getResultUrl
         rest.post(`${baseUri}/queries/v1/query-request`, (req, res, ctx) => {
             const queryId = uuid4()
-
-            // const sqlText = "create table test" //JSON.parse(req.body).sqlText
-
-            // const tableName = /create table (?<tableName>\w+)/i.exec(sqlText).groups?.tableName
-            // const stageName = /create stage (?<stageName>\w+)/i.exec(sqlText).groups?.stageName
-
-            // if (tableName) {
-            //     db.tables.push(tableName)
-            // }
-
-            // if (stageName) {
-            //     db.stages.push(stageName)
-            // }
-
             return res(ctx.json({
                 "data": {
                     "getResultUrl": `/queries/${queryId}/result`,
@@ -177,6 +169,7 @@ const createSnowflakeMock = (accountName: string) => {
                 "success": true
             }))
         }),
+        // Finally we need to invalidate the authn token by calling logout
         rest.post(`${baseUri}/session/logout-request`, (req, res, ctx) => {
             return res(ctx.status(200))
         }),

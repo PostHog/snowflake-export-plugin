@@ -15,8 +15,8 @@ jobs:
                   node-version: '16.x'
             - run: docker-compose up -d
             - uses: actions/cache@v2
-            with:
-                path: 'node_modules'
-                key: ${{ runner.os }}-modules-${{ hashFiles('**/yarn.lock') }
+              with:
+                  path: 'node_modules'
+                  key: ${{ runner.os }}-modules-${{ hashFiles('yarn.lock') }
             - run: yarn
             - run: yarn test --ci

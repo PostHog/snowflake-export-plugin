@@ -147,14 +147,13 @@ function generateCsvFileName(): string {
 
 function generateCsvString(events: TableRow[]): string {
     const columns: (keyof TableRow)[] =
-        ['uuid', 'event', 'properties', 'elements', 'people_set', 'people_set_once', 'distinct_id', 'team_id', 'ip', 'site_url', 'timestamp']
+        ['uuid','event','properties','elements','people_set','people_set_once','distinct_id','team_id','ip','site_url','timestamp']
     const csvHeader = columns.join(',')
     const csvRows: string[] = [csvHeader]
     for (let i = 0; i < events.length; ++i) {
         const currentEvent = events[i]
-        console.log(currentEvent)
         csvRows.push(
-            columns.map((column) => (currentEvent[column] || '').toString()).join(CSV_FIELD_DELIMITER)
+            columns.map((column) => currentEvent[column].toString()).join(CSV_FIELD_DELIMITER)
         )
     }
     return csvRows.join('\n')
@@ -543,7 +542,7 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
         try {
             // prevent some issues with plugin reloads
             await copyIntoSnowflake(meta, true)
-        } catch { }
+        } catch {}
         await global.snowflake.clear()
     },
 
@@ -552,7 +551,8 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
         const rows = events.filter((event) => !global.eventsToIgnore.has(event.event.trim())).map(transformEventToRow)
         if (rows.length) {
             console.info(
-                `Saving batch of ${rows.length} event${rows.length !== 1 ? 's' : ''} to Snowflake stage "${config.stage
+                `Saving batch of ${rows.length} event${rows.length !== 1 ? 's' : ''} to Snowflake stage "${
+                    config.stage
                 }"`
             )
         } else {
@@ -560,13 +560,11 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
         }
         try {
             if (global.useS3) {
-                console.log('Uploading to S3')
                 await global.snowflake.uploadToS3(rows, meta)
             } else {
                 await global.snowflake.uploadToGcs(rows, meta)
             }
         } catch (error) {
-            console.error(error.message || String(error))
             throw new RetryError()
         }
     },

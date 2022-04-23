@@ -6,6 +6,8 @@ import { v4 as uuid4 } from "uuid"
 import { setupServer } from "msw/node"
 import { rest } from "msw"
 
+// Use legacy fake timers. With modern timers there seems to be little feedback
+// on fails due to test timeouts.
 jest.useFakeTimers("legacy")
 
 // Redis is required to handle staging(?) of S3 files to be pushed to snowflake

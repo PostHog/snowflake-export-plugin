@@ -13,6 +13,10 @@ jest.useFakeTimers("legacy")
 // Redis is required to handle staging(?) of S3 files to be pushed to snowflake
 const redis = new Redis()
 
+afterAll(() => {
+    redis.quit()
+})
+
 // Create something that looks like the expected cache interface. Note it only
 // differs by the addition of the `defaultValue` argument.
 const cache = {
@@ -103,9 +107,7 @@ test("handles events", async () => {
         }
     ]
 
-    const snowflakeMock = createSnowflakeMock(
-        snowflakeAccount,
-    )
+    createSnowflakeMock(snowflakeAccount)
 
     await snowflakePlugin.setupPlugin?.(meta)
     await snowflakePlugin.exportEvents?.(events, meta)
@@ -118,12 +120,23 @@ test("handles events", async () => {
     //  2. S3 bucket has the right events
 })
 
+// Setup Snowflake MSW service
+const mswServer = setupServer()
+
+beforeAll(() => {
+    mswServer.listen()
+})
+
+afterAll(() => {
+    mswServer.close()
+})
+
 const createSnowflakeMock = (accountName: string) => {
     // Create something that kind of looks like snowflake, albeit not
     // functional.
     const baseUri = `https://${accountName}.snowflakecomputing.com`
 
-    const mock = setupServer(
+    mswServer.use(
         // Before making queries, we need to login via username/password and get
         // a token we can use for subsequent auth requests.
         rest.post(`${baseUri}/session/v1/login-request`, (req, res, ctx) => {
@@ -176,6 +189,4 @@ const createSnowflakeMock = (accountName: string) => {
             return res(ctx.status(200))
         }),
     )
-
-    mock.listen()
 }

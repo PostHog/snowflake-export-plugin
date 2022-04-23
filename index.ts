@@ -152,8 +152,9 @@ function generateCsvString(events: TableRow[]): string {
     const csvRows: string[] = [csvHeader]
     for (let i = 0; i < events.length; ++i) {
         const currentEvent = events[i]
+        console.log(currentEvent)
         csvRows.push(
-            columns.map((column) => currentEvent[column].toString()).join(CSV_FIELD_DELIMITER)
+            columns.map((column) => (currentEvent[column] || '').toString()).join(CSV_FIELD_DELIMITER)
         )
     }
     return csvRows.join('\n')
@@ -560,11 +561,13 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
         }
         try {
             if (global.useS3) {
+                console.log('Uploading to S3')
                 await global.snowflake.uploadToS3(rows, meta)
             } else {
                 await global.snowflake.uploadToGcs(rows, meta)
             }
         } catch (error) {
+            console.error(error.message || String(error))
             throw new RetryError()
         }
     },

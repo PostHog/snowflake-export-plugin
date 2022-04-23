@@ -7,14 +7,24 @@
         "@posthog/plugin-contrib": "^0.0.5",
         "@posthog/plugin-scaffold": "^0.12.5",
         "@types/generic-pool": "^3.1.9",
+        "@types/jest": "^27.4.1",
         "@types/snowflake-sdk": "^1.5.1",
         "generic-pool": "^3.7.1",
-        "snowflake-sdk": "^1.6.0"
+        "ioredis": "^5.0.4",
+        "jest": "^27.5.1",
+        "msw": "^0.39.2",
+        "snowflake-sdk": "^1.6.0",
+        "ts-jest": "^27.1.4",
+        "typescript": "^4.6.3",
+        "uuid": "^8.3.2"
     },
     "dependencies": {
         "@google-cloud/storage": "^5.8.5",
         "@types/node-fetch": "^2.5.10",
         "aws-sdk": "^2.939.0",
         "node-fetch": "^2.6.1"
+    },
+    "scripts": {
+        "test": "jest"
     }
 }

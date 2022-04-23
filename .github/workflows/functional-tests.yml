@@ -6,6 +6,7 @@ on:
 jobs:
     functional-tests:
         name: Run functional tests
+        runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v3
             - run: docker-compose up -d

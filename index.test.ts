@@ -6,29 +6,6 @@ import { v4 as uuid4 } from "uuid"
 import { setupServer } from "msw/node"
 import { rest } from "msw"
 
-// Use legacy fake timers. With modern timers there seems to be little feedback
-// on fails due to test timeouts.
-jest.useFakeTimers("legacy")
-
-// Redis is required to handle staging(?) of S3 files to be pushed to snowflake
-const redis = new Redis()
-
-afterAll(() => {
-    redis.quit()
-})
-
-// Create something that looks like the expected cache interface. Note it only
-// differs by the addition of the `defaultValue` argument.
-const cache = {
-    ...redis,
-    lpush: redis.lpush.bind(redis),
-    llen: redis.llen.bind(redis),
-    lrange: redis.lrange.bind(redis),
-    set: redis.set.bind(redis),
-    expire: redis.expire.bind(redis),
-    get: (key: string, defaultValue: unknown) => redis.get(key)
-} as any
-
 test("handles events", async () => {
     // Checks for the happy path
     //
@@ -119,6 +96,43 @@ test("handles events", async () => {
     //  1. snowflake called
     //  2. S3 bucket has the right events
 })
+
+
+// Use fake timers so we can better control e.g. backoff/retry code.
+// Use legacy fake timers. With modern timers there seems to be little feedback
+// on fails due to test timeouts.
+beforeEach(() => {
+    jest.useFakeTimers("legacy")
+})
+
+afterEach(() => {
+    jest.runOnlyPendingTimers()
+    jest.useRealTimers()
+})
+
+// Create something that looks like the expected cache interface. Note it only
+// differs by the addition of the `defaultValue` argument.
+// Redis is required to handle staging(?) of S3 files to be pushed to snowflake
+let redis: Redis | undefined;
+let cache: any
+
+beforeAll(() => {
+    redis = new Redis()
+
+    cache = {
+        lpush: redis.lpush.bind(redis),
+        llen: redis.llen.bind(redis),
+        lrange: redis.lrange.bind(redis),
+        set: redis.set.bind(redis),
+        expire: redis.expire.bind(redis),
+        get: (key: string, defaultValue: unknown) => redis.get(key)
+    }
+})
+
+afterAll(() => {
+    redis.quit()
+})
+
 
 // Setup Snowflake MSW service
 const mswServer = setupServer()

@@ -24,4 +24,4 @@ jobs:
 
             - run: yarn
 
-            - run: yarn test --ci
+            - uses: ArtiomTr/jest-coverage-report-action@v2

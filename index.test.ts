@@ -5,6 +5,8 @@ import Redis from 'ioredis'
 import { v4 as uuid4 } from "uuid"
 import { setupServer } from "msw/node"
 import { rest } from "msw"
+import zlib from "zlib"
+
 
 test("handles events", async () => {
     // Checks for the happy path
@@ -76,7 +78,7 @@ test("handles events", async () => {
         },
         {
             event: "events",
-            distinct_id: "123",
+            distinct_id: "456",
             ip: "10.10.10.10",
             site_url: "https://app.posthog.com",
             team_id: 1,
@@ -84,17 +86,25 @@ test("handles events", async () => {
         }
     ]
 
-    createSnowflakeMock(snowflakeAccount)
+    const db = createSnowflakeMock(snowflakeAccount)
 
     await snowflakePlugin.setupPlugin?.(meta)
     await snowflakePlugin.exportEvents?.(events, meta)
     await snowflakePlugin.runEveryMinute?.(meta)
     await snowflakePlugin.teardownPlugin?.(meta)
 
-    // TODO: assert:
-    //  
-    //  1. snowflake called
-    //  2. S3 bucket has the right events
+    const copiedFiles = db.queries.map(query => /'(?<filename>.*\.csv)/m.exec(query)?.groups.filename).filter(Boolean)
+    const s3Keys = (await s3.listObjects({ Bucket: bucketName }).promise()).Contents?.map((obj) => obj.Key) || []
+
+    expect(copiedFiles).toEqual(s3Keys)
+
+    const csvStrings = await Promise.all(s3Keys.map(async s3Key => {
+        const response = await s3.getObject({ Bucket: bucketName, Key: s3Key }).promise()
+        return (response.Body || "").toString('utf8')
+    }))
+
+    expect(csvStrings.join()).toContain("123")
+    expect(csvStrings.join()).toContain("456")
 })
 
 
@@ -150,6 +160,8 @@ const createSnowflakeMock = (accountName: string) => {
     // functional.
     const baseUri = `https://${accountName}.snowflakecomputing.com`
 
+    const db = { queries: [] }
+
     mswServer.use(
         // Before making queries, we need to login via username/password and get
         // a token we can use for subsequent auth requests.
@@ -171,8 +183,17 @@ const createSnowflakeMock = (accountName: string) => {
         //  2. use the getResultUrl to fetch the results of the query
         //
         // TODO: handle case when query isn't complete on requesting getResultUrl
-        rest.post(`${baseUri}/queries/v1/query-request`, (req, res, ctx) => {
+        rest.post(`${baseUri}/queries/v1/query-request`, async (req, res, ctx) => {
             const queryId = uuid4()
+            // snowflake-sdk encodes the request body as gzip, which we recieve
+            // in this handler as a stringified hex sequence.
+            const requestJson = await new Promise(
+                (resolve, reject) => {
+                    zlib.gunzip(Buffer.from(req.body, 'hex'), (err, uncompressed) => resolve(uncompressed))
+                }
+            )
+            const request = JSON.parse(requestJson)
+            db.queries.push(request.sqlText)
             return res(ctx.json({
                 "data": {
                     "getResultUrl": `/queries/${queryId}/result`,
@@ -203,4 +224,6 @@ const createSnowflakeMock = (accountName: string) => {
             return res(ctx.status(200))
         }),
     )
+
+    return db;
 }

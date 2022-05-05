@@ -20,3 +20,12 @@ services:
     network_mode: bridge
     ports: 
       - "6379:6379"
+  db:
+    image: postgres:13-alpine
+    network_mode: bridge
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: posthog
+      POSTGRES_PASSWORD: posthog
+      POSTGRES_USER: posthog

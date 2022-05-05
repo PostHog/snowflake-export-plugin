@@ -1,6 +1,6 @@
 import * as snowflake from 'snowflake-sdk'
 import { createPool, Pool } from 'generic-pool'
-import { PluginEvent, Plugin, RetryError, CacheExtension, Meta } from '@posthog/plugin-scaffold'
+import { PluginEvent, Plugin, RetryError, CacheExtension, Meta, StorageExtension } from '@posthog/plugin-scaffold'
 import { randomBytes } from 'crypto'
 import { ManagedUpload } from 'aws-sdk/clients/s3'
 import { S3 } from 'aws-sdk'
@@ -41,6 +41,7 @@ interface SnowflakePluginInput {
         debug: 'ON' | 'OFF'
     }
     cache: CacheExtension
+    storage: StorageExtension
 }
 
 interface TableRow {
@@ -104,7 +105,7 @@ const TABLE_SCHEMA = [
 ]
 
 const CSV_FIELD_DELIMITER = '|$|'
-const REDIS_FILES_LIST_KEY = '_files_staged_for_copy_into_snowflake'
+const FILES_STAGED_KEY = '_files_staged_for_copy_into_snowflake'
 
 function transformEventToRow(fullEvent: PluginEvent): TableRow {
     const { event, properties, $set, $set_once, distinct_id, team_id, site_url, now, sent_at, uuid, ...rest } =
@@ -146,16 +147,25 @@ function generateCsvFileName(): string {
 }
 
 function generateCsvString(events: TableRow[]): string {
-    const columns: (keyof TableRow)[] =
-        ['uuid','event','properties','elements','people_set','people_set_once','distinct_id','team_id','ip','site_url','timestamp']
+    const columns: (keyof TableRow)[] = [
+        'uuid',
+        'event',
+        'properties',
+        'elements',
+        'people_set',
+        'people_set_once',
+        'distinct_id',
+        'team_id',
+        'ip',
+        'site_url',
+        'timestamp',
+    ]
     const csvHeader = columns.join(',')
     const csvRows: string[] = [csvHeader]
     for (let i = 0; i < events.length; ++i) {
         const currentEvent = events[i]
         console.log(currentEvent)
-        csvRows.push(
-            columns.map((column) => (currentEvent[column] || '').toString()).join(CSV_FIELD_DELIMITER)
-        )
+        csvRows.push(columns.map((column) => (currentEvent[column] || '').toString()).join(CSV_FIELD_DELIMITER))
     }
     return csvRows.join('\n')
 }
@@ -223,12 +233,12 @@ class Snowflake {
                 'You must provide valid credentials and your storage integration name to use the GCS stage.'
             )
         }
-        const storage = new Storage({
+        const gcsStorage = new Storage({
             projectId: credentials['project_id'],
             credentials,
             autoRetry: false,
         })
-        this.gcsConnector = storage.bucket(bucketName)
+        this.gcsConnector = gcsStorage.bucket(bucketName)
         this.gcsOptions = { storageIntegrationName: storageIntegrationName.toUpperCase() }
     }
 
@@ -351,11 +361,16 @@ class Snowflake {
         )
     }
 
+    async appendToFilesList(storage: StorageExtension, fileName: string) {
+        const existingFiles = (await storage.get(FILES_STAGED_KEY, [])) as string[]
+        await storage.set(FILES_STAGED_KEY, existingFiles.concat([fileName]))
+    }
+
     async uploadToS3(events: TableRow[], meta: SnowflakePluginInput) {
         if (!this.s3connector) {
             throw new Error('S3 connector not setup correctly!')
         }
-        const { config, cache, global } = meta
+        const { config, global, storage } = meta
 
         const csvString = generateCsvString(events)
         const fileName = `${global.parsedBucketPath}${generateCsvFileName()}`
@@ -379,10 +394,10 @@ class Snowflake {
                 resolve()
             })
         })
-        await cache.lpush(REDIS_FILES_LIST_KEY, [fileName])
+        await this.appendToFilesList(storage, fileName)
     }
 
-    async uploadToGcs(events: TableRow[], { cache, global }: SnowflakePluginInput) {
+    async uploadToGcs(events: TableRow[], { global, storage }: SnowflakePluginInput) {
         if (!this.gcsConnector) {
             throw new Error('GCS connector not setup correctly!')
         }
@@ -411,7 +426,7 @@ class Snowflake {
                     resolve(true)
                 })
         })
-        await cache.lpush(REDIS_FILES_LIST_KEY, [fileName])
+        await this.appendToFilesList(storage, fileName)
     }
 
     async copyIntoTableFromStage(files: string[], purge = false, forceCopy = false, debug = false) {
@@ -424,7 +439,7 @@ class Snowflake {
 
         const querySqlText = `COPY INTO "${this.database}"."${this.dbschema}"."${this.table}"
         FROM @"${this.database}"."${this.dbschema}".${this.stage}
-        FILES = ( ${files.map(file => `'${file}'`).join(',')} )
+        FILES = ( ${files.map((file) => `'${file}'`).join(',')} )
         ${forceCopy ? `FORCE = true` : ``}
         PURGE = ${purge};`
 
@@ -447,7 +462,12 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
             }
             try {
                 console.log('Retrying COPY INTO operation')
-                await global.snowflake.copyIntoTableFromStage(payload.filesStagedForCopy, global.purgeEventsFromStage, global.forceCopy, global.debug)
+                await global.snowflake.copyIntoTableFromStage(
+                    payload.filesStagedForCopy,
+                    global.purgeEventsFromStage,
+                    global.forceCopy,
+                    global.debug
+                )
             } catch {
                 const nextRetrySeconds = 2 ** payload.retriesPerformedSoFar * 3
                 await jobs
@@ -504,7 +524,6 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
         global.purgeEventsFromStage = config.purgeFromStage === 'Yes'
         global.debug = config.debug === 'ON'
         global.forceCopy = config.forceCopy === 'Yes'
-
 
         global.useS3 = config.stageToUse === 'S3'
         if (global.useS3) {
@@ -577,18 +596,18 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
     },
 }
 
-async function copyIntoSnowflake({ cache, global, jobs }: Meta<SnowflakePluginInput>, force = false) {
+async function copyIntoSnowflake({ cache, storage, global, jobs }: Meta<SnowflakePluginInput>, force = false) {
     if (global.debug) {
         console.info('Running copyIntoSnowflake')
     }
-    const filesStagedLength = await cache.llen(REDIS_FILES_LIST_KEY)
-    if (!filesStagedLength) {
+
+    const filesStagedForCopy = (await storage.get(FILES_STAGED_KEY, [])) as string[]
+    if (filesStagedForCopy.length === 0) {
         if (global.debug) {
-            console.log('filesStagedLength', filesStagedLength)
+            console.log('No files stagged skipping')
         }
         return
     }
-    const filesStagedForCopy = await cache.lrange(REDIS_FILES_LIST_KEY, 0, filesStagedLength)
 
     if (global.debug) {
         console.log('Files staged for copy:', filesStagedForCopy)
@@ -605,15 +624,21 @@ async function copyIntoSnowflake({ cache, global, jobs }: Meta<SnowflakePluginIn
     await cache.set('lastRun', timeNow)
     console.log(`Copying ${String(filesStagedForCopy)} from object storage into Snowflake`)
     try {
-        await global.snowflake.copyIntoTableFromStage(filesStagedForCopy, global.purgeEventsFromStage, global.forceCopy, global.debug)
+        await global.snowflake.copyIntoTableFromStage(
+            filesStagedForCopy,
+            global.purgeEventsFromStage,
+            global.forceCopy,
+            global.debug
+        )
     } catch {
         await jobs
             .retryCopyIntoSnowflake({ retriesPerformedSoFar: 0, filesStagedForCopy: filesStagedForCopy })
             .runIn(3, 'seconds')
-        console.error(`Failed to copy ${String(filesStagedForCopy)} from object storage into Snowflake. Retrying in 3s.`)
+        console.error(
+            `Failed to copy ${String(filesStagedForCopy)} from object storage into Snowflake. Retrying in 3s.`
+        )
     }
-    await cache.expire(REDIS_FILES_LIST_KEY, 0)
+    await storage.set(FILES_STAGED_KEY, undefined)
 }
 
 export default snowflakePlugin
-

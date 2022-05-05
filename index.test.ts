@@ -85,19 +85,25 @@ test("handles events", async () => {
             now: "2020-01-01T01:01:01Z"
         }
     ]
-
     const db = createSnowflakeMock(snowflakeAccount)
 
     await snowflakePlugin.setupPlugin?.(meta)
-    await snowflakePlugin.exportEvents?.(events, meta)
+    for (let i = 0; i < 3; i++) { // to have >1 files to copy over
+        await cache.expire('lastRun', 0)
+        await snowflakePlugin.exportEvents?.(events, meta)
+    }
     await snowflakePlugin.runEveryMinute?.(meta)
     await snowflakePlugin.teardownPlugin?.(meta)
 
-    const copiedFiles = db.queries.map(query => /'(?<filename>.*\.csv)/m.exec(query)?.groups.filename).filter(Boolean)
     const s3Keys = (await s3.listObjects({ Bucket: bucketName }).promise()).Contents?.map((obj) => obj.Key) || []
+    expect(s3Keys.length).toEqual(3)
 
-    expect(copiedFiles).toEqual(s3Keys)
+    // Snowflake gets the right files
+    const filesLists = db.queries.map(query => /FILES = (?<files>.*)/m.exec(query)?.groups.files).filter(Boolean)
+    const copiedFiles = filesLists.map(files => files.split("'").filter(file => file.includes("csv"))).flat()
+    expect(copiedFiles.sort()).toEqual(s3Keys.sort())
 
+    // The content in S3 is what we expect
     const csvStrings = await Promise.all(s3Keys.map(async s3Key => {
         const response = await s3.getObject({ Bucket: bucketName, Key: s3Key }).promise()
         return (response.Body || "").toString('utf8')

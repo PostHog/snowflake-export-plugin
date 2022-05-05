@@ -612,6 +612,7 @@ async function copyIntoSnowflake({ cache, global, jobs }: Meta<SnowflakePluginIn
             .runIn(3, 'seconds')
         console.error(`Failed to copy ${String(filesStagedForCopy)} from object storage into Snowflake. Retrying in 3s.`)
     }
+    // TODO: use storage for all files
     await cache.expire(REDIS_FILES_LIST_KEY, 0)
 }
 

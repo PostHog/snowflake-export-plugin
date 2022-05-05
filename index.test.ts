@@ -87,14 +87,45 @@ test("handles events", async () => {
     createSnowflakeMock(snowflakeAccount)
 
     await snowflakePlugin.setupPlugin?.(meta)
-    await snowflakePlugin.exportEvents?.(events, meta)
+    for (let i = 0; i < 3; i++) { // Make us have >1 files to copy over
+        await cache.expire('lastRun', 0) 
+        await snowflakePlugin.exportEvents?.(events, meta)
+    }
     await snowflakePlugin.runEveryMinute?.(meta)
-    await snowflakePlugin.teardownPlugin?.(meta)
 
-    // TODO: assert:
-    //  
-    //  1. snowflake called
-    //  2. S3 bucket has the right events
+    // Verify S3 bucket has the right data
+    const s3Keys = await new Promise<string[]>((resolve, reject) => {
+        s3.listObjects({Bucket: bucketName}, async (err: any, data: any) => {
+            if (err) {
+                console.log(err, err.stack) // an error occurred
+                reject([])
+            }
+            else {    
+                const keys = data.Contents?.map((obj) => obj.Key) || []
+                resolve(keys)
+            }
+        })
+    }) 
+    expect(s3Keys.length).toEqual(3)
+    const csvString = await new Promise<String>((resolve, reject) => {
+        s3.getObject({Bucket: bucketName, Key: s3Keys[0]}, async (err: any, data: any) => {
+            if (err) {
+                console.log(err, err.stack) // an error occurred
+                reject("")
+            }
+            else {    
+                const res = (data?.Body || "").toString('utf8')
+                resolve(res)
+            }
+        })
+    })  
+    expect(csvString).toContain("https://app.posthog.com")
+    expect(csvString).toContain("10.10.10.10")
+
+    // Verify snowflake gets the right data
+    // TODO: test the snowflake part too! as that's where we read the files length
+
+    await snowflakePlugin.teardownPlugin?.(meta)
 })
 
 
@@ -136,8 +167,10 @@ afterAll(() => {
 
 // Setup Snowflake MSW service
 const mswServer = setupServer()
+let snowflake_post_requests: string[] = []
 
 beforeAll(() => {
+    snowflake_post_requests = []
     mswServer.listen()
 })
 
@@ -172,12 +205,31 @@ const createSnowflakeMock = (accountName: string) => {
         //
         // TODO: handle case when query isn't complete on requesting getResultUrl
         rest.post(`${baseUri}/queries/v1/query-request`, (req, res, ctx) => {
+            console.log('request post snowflake')
+            console.log(req)
+            console.log(req.body.sqlText)
             const queryId = uuid4()
             return res(ctx.json({
                 "data": {
                     "getResultUrl": `/queries/${queryId}/result`,
                 },
                 "code": "333334",
+                "message": null,
+                "success": true
+            }))
+        }),
+        rest.get(`${baseUri}/queries/:queryId/result`, (req, res, ctx) => {
+            return res(ctx.json({
+                "data": {
+                    "parameters": [],
+                    "rowtype": [],
+                    "rowset": [],
+                    "total": 0,
+                    "returned": 0,
+                    "queryId": "query-id",
+                    "queryResultFormat": "json"
+                },
+                "code": null,
                 "message": null,
                 "success": true
             }))

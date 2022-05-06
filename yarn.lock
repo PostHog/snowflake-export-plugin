@@ -685,10 +685,10 @@
   resolved "https://registry.yarnpkg.com/@posthog/plugin-contrib/-/plugin-contrib-0.0.5.tgz#6c55f39c39dd9dd8af558888558a69bc3fe19aff"
   integrity sha512-ic2JsfFUdLGF+fGYJPatWEB6gEFNoD89qz92FN1RE2QfLpr6YdyPNuMowzahya3hfC/jaLZ8QdPG/j5pSOgT7A==
 
-"@posthog/plugin-scaffold@^0.12.5":
-  version "0.12.5"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-0.12.5.tgz#596539ea69df21f07640a2ce0a335c7ead940b06"
-  integrity sha512-EuRoYM17vYI1m2SmXpYe7LC9hFPWsRnN6rAi6q3unFIW26pT40sV/TYSWnBEihZXIWdVShwiGXORQMHjpnJOig==
+"@posthog/plugin-scaffold@^0.12.10":
+  version "0.12.10"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-0.12.10.tgz#ae28cd25bfe8178171841a98372ef40423b2fa32"
+  integrity sha512-63HFD0fC232vg++MWbPNBSezbNMuUfamJxLs3wV+GrV+2gxlo/76gN7AK5a/3N3xBtRs394Yj7TwkwlK4MryLA==
 
 "@sinonjs/commons@^1.7.0":
   version "1.8.3"

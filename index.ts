@@ -638,7 +638,7 @@ async function copyIntoSnowflake({ cache, storage, global, jobs }: Meta<Snowflak
             `Failed to copy ${String(filesStagedForCopy)} from object storage into Snowflake. Retrying in 3s.`
         )
     }
-    await storage.set(FILES_STAGED_KEY, undefined)
+    await storage.del(FILES_STAGED_KEY)
 }
 
 export default snowflakePlugin

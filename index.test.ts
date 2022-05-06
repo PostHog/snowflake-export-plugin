@@ -151,6 +151,10 @@ beforeAll(() => {
         console.log('🔴', 'PostgreSQL error encountered!\n', error)
     })
 
+    const storageDel = async function (key: string): Promise<void> {
+        await postgres.query('DELETE FROM plugins_test WHERE "key"=$1', [key])
+    }
+
     storage = {
         // Based of https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/vm/extensions/storage.ts
         get: async function (key: string, defaultValue: unknown): Promise<unknown> {
@@ -159,7 +163,7 @@ beforeAll(() => {
         },
         set: async function (key: string, value: unknown): Promise<void> {
             if (typeof value === 'undefined') {
-                await postgres.query('DELETE FROM plugins_test WHERE "key"=$1', [key])
+                await storageDel(key)
             } else {
             await postgres.query(
                 `
@@ -171,6 +175,7 @@ beforeAll(() => {
                 [key, JSON.stringify(value)]
             )}
         },
+        del: storageDel,
     }
 
 })

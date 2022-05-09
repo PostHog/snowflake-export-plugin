@@ -6,10 +6,8 @@ import { v4 as uuid4 } from "uuid"
 import { setupServer } from "msw/node"
 import { rest } from "msw"
 import zlib from "zlib"
-import { Pool } from "pg"
 
 test("handles events", async () => {
-    await setupDB()
     // Checks for the happy path
     //
     // TODO: check for:
@@ -132,8 +130,8 @@ afterEach(() => {
 // Redis is required to handle staging(?) of S3 files to be pushed to snowflake
 let redis: Redis | undefined;
 let cache: any
-let postgres: Pool | undefined;
 let storage: any
+let mockStorage: Map<string, unknown>
 
 beforeAll(() => {
     redis = new Redis()
@@ -146,54 +144,35 @@ beforeAll(() => {
         expire: redis.expire.bind(redis),
         get: (key: string, defaultValue: unknown) => redis.get(key)
     }
-    postgres = new Pool({user: "posthog", password: "posthog", database: "posthog"})
-    postgres.on('error', (error) => {
-        console.log('🔴', 'PostgreSQL error encountered!\n', error)
-    })
 
-    const storageDel = async function (key: string): Promise<void> {
-        await postgres.query('DELETE FROM plugins_test WHERE "key"=$1', [key])
-    }
-
+    mockStorage = new Map()
     storage = {
         // Based of https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/vm/extensions/storage.ts
         get: async function (key: string, defaultValue: unknown): Promise<unknown> {
-            const result = await postgres.query('SELECT * FROM plugins_test WHERE "key"=$1', [key])
-            return result?.rows.length === 1 ? JSON.parse(result.rows[0].value) : defaultValue
+            if (mockStorage.has(key)) {
+                const res = mockStorage.get(key)
+                if (res) {
+                    return JSON.parse(String(res))
+                }
+            }
+            return defaultValue
         },
         set: async function (key: string, value: unknown): Promise<void> {
             if (typeof value === 'undefined') {
-                await storageDel(key)
+                mockStorage.delete(key)
             } else {
-            await postgres.query(
-                `
-                INSERT INTO plugins_test ("key", "value")
-                VALUES ($1, $2)
-                ON CONFLICT ("key")
-                DO UPDATE SET value = $2
-                `,
-                [key, JSON.stringify(value)]
-            )}
+                mockStorage.set(key, JSON.stringify(value))
+            }
         },
-        del: storageDel,
+        del: async function (key: string): Promise<void> {
+            mockStorage.delete(key)
+        },
     }
 
 })
 
-async function setupDB() {
-    await postgres.query(`
-    CREATE TABLE IF NOT EXISTS plugins_test (
-        key VARCHAR(200) NOT NULL,
-        value TEXT,
-        CONSTRAINT key_unique UNIQUE (key)
-    )`)
-    await postgres.query('TRUNCATE TABLE plugins_test')
-}
-
-
 afterAll(() => {
     redis.quit()
-    postgres.end()
 })
 
 

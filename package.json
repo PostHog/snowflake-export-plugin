@@ -22,8 +22,7 @@
         "@google-cloud/storage": "^5.8.5",
         "@types/node-fetch": "^2.5.10",
         "aws-sdk": "^2.939.0",
-        "node-fetch": "^2.6.1",
-        "pg": "^8.7.3"
+        "node-fetch": "^2.6.1"
     },
     "scripts": {
         "test": "jest"

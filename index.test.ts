@@ -149,6 +149,7 @@ beforeAll(() => {
     storage = {
         // Based of https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/vm/extensions/storage.ts
         get: async function (key: string, defaultValue: unknown): Promise<unknown> {
+            await Promise.resolve()
             if (mockStorage.has(key)) {
                 const res = mockStorage.get(key)
                 if (res) {
@@ -158,6 +159,7 @@ beforeAll(() => {
             return defaultValue
         },
         set: async function (key: string, value: unknown): Promise<void> {
+            await Promise.resolve()
             if (typeof value === 'undefined') {
                 mockStorage.delete(key)
             } else {
@@ -165,6 +167,7 @@ beforeAll(() => {
             }
         },
         del: async function (key: string): Promise<void> {
+            await Promise.resolve()
             mockStorage.delete(key)
         },
     }

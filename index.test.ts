@@ -7,7 +7,6 @@ import { setupServer } from "msw/node"
 import { rest } from "msw"
 import zlib from "zlib"
 
-
 test("handles events", async () => {
     // Checks for the happy path
     //
@@ -61,9 +60,9 @@ test("handles events", async () => {
         },
         jobs: {},
         cache: cache,
+        storage: storage,
         // Cast to any, as otherwise we don't match plugin call signatures
         global: {} as any,
-        storage: {} as any,
         geoip: {} as any
     }
 
@@ -131,6 +130,8 @@ afterEach(() => {
 // Redis is required to handle staging(?) of S3 files to be pushed to snowflake
 let redis: Redis | undefined;
 let cache: any
+let storage: any
+let mockStorage: Map<string, unknown>
 
 beforeAll(() => {
     redis = new Redis()
@@ -143,6 +144,34 @@ beforeAll(() => {
         expire: redis.expire.bind(redis),
         get: (key: string, defaultValue: unknown) => redis.get(key)
     }
+
+    mockStorage = new Map()
+    storage = {
+        // Based of https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/vm/extensions/storage.ts
+        get: async function (key: string, defaultValue: unknown): Promise<unknown> {
+            await Promise.resolve()
+            if (mockStorage.has(key)) {
+                const res = mockStorage.get(key)
+                if (res) {
+                    return JSON.parse(String(res))
+                }
+            }
+            return defaultValue
+        },
+        set: async function (key: string, value: unknown): Promise<void> {
+            await Promise.resolve()
+            if (typeof value === 'undefined') {
+                mockStorage.delete(key)
+            } else {
+                mockStorage.set(key, JSON.stringify(value))
+            }
+        },
+        del: async function (key: string): Promise<void> {
+            await Promise.resolve()
+            mockStorage.delete(key)
+        },
+    }
+
 })
 
 afterAll(() => {

@@ -577,6 +577,7 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
             )
         } else {
             console.info(`Skipping an empty batch of events`)
+            return
         }
         try {
             if (global.useS3) {

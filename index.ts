@@ -457,7 +457,7 @@ const exportTableColumns = TABLE_SCHEMA.map(({ name, type }) => `"${name.toUpper
 const snowflakePlugin: Plugin<SnowflakePluginInput> = {
     jobs: {
         retryCopyIntoSnowflake: async (payload: RetryCopyIntoJobPayload, { global, jobs, config }) => {
-            if (payload.retriesPerformedSoFar >= 15 || config.retryCopyIntoOperations === 'No') {
+            if (payload.retriesPerformedSoFar >= 5 || config.retryCopyIntoOperations === 'No') {
                 return
             }
             try {

@@ -153,7 +153,7 @@ test("handles > 1k files", async () => {
 
     await storage.set('_files_staged_for_copy_into_snowflake', Array(2100).fill('file'))
     await cache.expire('lastRun', 0)
-   await snowflakePlugin.runEveryMinute(meta) 
+    await snowflakePlugin.runEveryMinute(meta) 
 
    expect(snowflakeMock.mock.calls.length).toBe(3)
    expect(snowflakeMock.mock.calls[0][0].length).toBe(999)

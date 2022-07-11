@@ -118,7 +118,7 @@ test("handles > 1k files", async () => {
     const bucketName = uuid4()
     const snowflakeAccount = uuid4()
 
-    const snowflakeMock= jest.fn()
+    const snowflakeMock = jest.fn()
     const meta = {
         attachments: {}, config: {
             account: snowflakeAccount,

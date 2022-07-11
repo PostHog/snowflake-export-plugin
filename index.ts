@@ -628,6 +628,7 @@ async function copyIntoSnowflake({ cache, storage, global, jobs }: Meta<Snowflak
     const chunkSize = 999
     for (let i = 0; i < filesStagedForCopy.length; i += chunkSize) {
         const chunkStagedForCopy = filesStagedForCopy.slice(i, i + chunkSize)
+        
         try {
             await global.snowflake.copyIntoTableFromStage(
                 chunkStagedForCopy,

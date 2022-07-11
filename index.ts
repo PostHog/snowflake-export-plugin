@@ -624,9 +624,10 @@ async function copyIntoSnowflake({ cache, storage, global, jobs }: Meta<Snowflak
     }
     await cache.set('lastRun', timeNow)
     console.log(`Copying ${String(filesStagedForCopy)} from object storage into Snowflake`)
-    const chunkSize = 999;
+    // Snowflake's COPY INTO only supports up to 1000 files at a time, so we split into multiple COPY INTO statements of size 999
+    const chunkSize = 999
     for (let i = 0; i < filesStagedForCopy.length; i += chunkSize) {
-        const chunkStagedForCopy = filesStagedForCopy.slice(i, i + chunkSize);
+        const chunkStagedForCopy = filesStagedForCopy.slice(i, i + chunkSize)
         try {
             await global.snowflake.copyIntoTableFromStage(
                 chunkStagedForCopy,

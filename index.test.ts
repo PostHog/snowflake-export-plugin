@@ -112,6 +112,56 @@ test("handles events", async () => {
     expect(csvStrings.join()).toContain("456")
 })
 
+test("handles > 1k files", async () => {
+    // NOTE: we create random names for tests such that we can run tests
+    // concurrently without fear of conflicts
+    const bucketName = uuid4()
+    const snowflakeAccount = uuid4()
+
+    const snowflakeMock = jest.fn()
+    const meta = {
+        attachments: {}, config: {
+            account: snowflakeAccount,
+            username: "username",
+            password: "password",
+            database: "database",
+            dbschema: "dbschema",
+            table: "table",
+            stage: "S3",
+            eventsToIgnore: "eventsToIgnore",
+            bucketName: bucketName,
+            warehouse: "warehouse",
+            awsAccessKeyId: "awsAccessKeyId",
+            awsSecretAccessKey: "awsSecretAccessKey",
+            awsRegion: "string",
+            storageIntegrationName: "storageIntegrationName",
+            role: "role",
+            stageToUse: 'S3' as const,
+            purgeFromStage: 'Yes' as const,
+            bucketPath: "bucketPath",
+            retryCopyIntoOperations: 'Yes' as const,
+            forceCopy: 'Yes' as const,
+            debug: 'ON' as const,
+        },
+        jobs: {},
+        cache: cache,
+        storage: storage,
+        // Cast to any, as otherwise we don't match plugin call signatures
+        global: {snowflake: {copyIntoTableFromStage: snowflakeMock}} as any,
+        geoip: {} as any
+    }
+
+    await storage.set('_files_staged_for_copy_into_snowflake', Array(2100).fill('file'))
+    await cache.expire('lastRun', 0)
+    await snowflakePlugin.runEveryMinute(meta) 
+
+   expect(snowflakeMock.mock.calls.length).toBe(3)
+   expect(snowflakeMock.mock.calls[0][0].length).toBe(999)
+   expect(snowflakeMock.mock.calls[1][0].length).toBe(999)
+   expect(snowflakeMock.mock.calls[2][0].length).toBe(102)
+
+})
+
 
 // Use fake timers so we can better control e.g. backoff/retry code.
 // Use legacy fake timers. With modern timers there seems to be little feedback

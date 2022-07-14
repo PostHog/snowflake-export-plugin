@@ -164,7 +164,6 @@ function generateCsvString(events: TableRow[]): string {
     const csvRows: string[] = [csvHeader]
     for (let i = 0; i < events.length; ++i) {
         const currentEvent = events[i]
-        console.log(currentEvent)
         csvRows.push(columns.map((column) => (currentEvent[column] || '').toString()).join(CSV_FIELD_DELIMITER))
     }
     return csvRows.join('\n')

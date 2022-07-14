@@ -636,6 +636,7 @@ async function copyIntoSnowflake({ cache, storage, global, jobs }: Meta<Snowflak
                 global.forceCopy,
                 global.debug
             )
+            console.log('COPY INTO ran successfully')
         } catch {
             await jobs
                 .retryCopyIntoSnowflake({ retriesPerformedSoFar: 0, filesStagedForCopy: chunkStagedForCopy })

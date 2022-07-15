@@ -7,6 +7,8 @@ import { setupServer } from "msw/node"
 import { rest } from "msw"
 import zlib from "zlib"
 
+jest.setTimeout(50000)
+
 test("handles events", async () => {
     // Checks for the happy path
     //
@@ -58,7 +60,11 @@ test("handles events", async () => {
             forceCopy: 'Yes' as const,
             debug: 'ON' as const,
         },
-        jobs: {},
+        jobs: { retryCopyIntoSnowflake: async (payload) => { 
+            await snowflakePlugin.copyIntoTableFromStage(payload) 
+            return jest.fn()
+        } 
+    },
         cache: cache,
         storage: storage,
         // Cast to any, as otherwise we don't match plugin call signatures
@@ -143,7 +149,7 @@ test("handles > 1k files", async () => {
             forceCopy: 'Yes' as const,
             debug: 'ON' as const,
         },
-        jobs: {},
+        jobs: { retryCopyIntoSnowflake: () => ({ runIn: snowflakeMock } )},
         cache: cache,
         storage: storage,
         // Cast to any, as otherwise we don't match plugin call signatures
@@ -155,10 +161,7 @@ test("handles > 1k files", async () => {
     await cache.expire('lastRun', 0)
     await snowflakePlugin.runEveryMinute(meta) 
 
-   expect(snowflakeMock.mock.calls.length).toBe(3)
-   expect(snowflakeMock.mock.calls[0][0].length).toBe(999)
-   expect(snowflakeMock.mock.calls[1][0].length).toBe(999)
-   expect(snowflakeMock.mock.calls[2][0].length).toBe(102)
+   expect(snowflakeMock.mock.calls.length).toBe(42)
 
 })
 

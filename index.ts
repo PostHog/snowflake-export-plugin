@@ -630,10 +630,31 @@ async function copyIntoSnowflake({ cache, storage, global, jobs }: Meta<Snowflak
     const chunkSize = 50
     for (let i = 0; i < filesStagedForCopy.length; i += chunkSize) {
         const chunkStagedForCopy = filesStagedForCopy.slice(i, i + chunkSize)
+
+        if (i === 0) {
+            try {
+                await global.snowflake.copyIntoTableFromStage(
+                    chunkStagedForCopy,
+                    global.purgeEventsFromStage,
+                    global.forceCopy,
+                    global.debug
+                )
+                console.log('COPY INTO ran successfully')
+
+                // if we succeed, go to the next chunk, else we'll enqueue a retry below
+                continue
+            } catch {
+                console.error(
+                    `Failed to copy ${String(filesStagedForCopy)} from object storage into Snowflake. Retrying in 3s.`
+                )
+            }
+        } 
+
         await jobs
             .retryCopyIntoSnowflake({ retriesPerformedSoFar: 0, filesStagedForCopy: chunkStagedForCopy })
             .runIn(3, 'seconds')
     }
+
     await storage.del(FILES_STAGED_KEY)
 }
 

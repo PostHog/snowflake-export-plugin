@@ -58,6 +58,12 @@
             "hint": "Optional, overrides the default role for the user."
         },
         {
+            "key": "copyCadenceMinutes",
+            "name": "How often (in minutes) data should be copied into Snowflake",
+            "type": "string",
+            "default": "10"
+        },
+        {
             "key": "stageToUse",
             "name": "Stage type",
             "type": "choice",

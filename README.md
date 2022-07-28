@@ -4,7 +4,7 @@ Export events to a Snowflake table regularly.
 
 ## What This Does
 
-This plugin uses a Snowflake external stage to stage events in object storage - Amazon S3 or Google Cloud Storage. Staged events (stored in object storage as files containing event batches) are then copied into the final destination – your Snowflake table – once an hour.
+This plugin uses a Snowflake external stage to stage events in object storage - Amazon S3 or Google Cloud Storage. Staged events (stored in object storage as files containing event batches) are then copied into the final destination – your Snowflake table – once every 10 minutes (or a cadence of your choosing).
 
 Prerequisites:
 

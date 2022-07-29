@@ -39,6 +39,7 @@ interface SnowflakePluginInput {
         retryCopyIntoOperations: 'Yes' | 'No'
         forceCopy: 'Yes' | 'No'
         debug: 'ON' | 'OFF'
+        copyCadenceMinutes: string
     }
     cache: CacheExtension
     storage: StorageExtension
@@ -599,7 +600,7 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
     },
 }
 
-async function copyIntoSnowflake({ cache, storage, global, jobs }: Meta<SnowflakePluginInput>, force = false) {
+async function copyIntoSnowflake({ cache, storage, global, jobs, config }: Meta<SnowflakePluginInput>, force = false) {
     if (global.debug) {
         console.info('Running copyIntoSnowflake')
     }
@@ -616,9 +617,10 @@ async function copyIntoSnowflake({ cache, storage, global, jobs }: Meta<Snowflak
         console.log('Files staged for copy:', filesStagedForCopy)
     }
     const lastRun = await cache.get('lastRun', null)
-    const MAX_TIME = 10 * 60 * 1000 // 10 min
+    const copyCadenceMinutes = parseInt(config.copyCadenceMinutes) || 10
+    const maxTime = copyCadenceMinutes * 60 * 1000
     const timeNow = new Date().getTime()
-    if (!force && lastRun && timeNow - Number(lastRun) < MAX_TIME) {
+    if (!force && lastRun && timeNow - Number(lastRun) < maxTime) {
         if (global.debug) {
             console.log('Skipping COPY INTO', timeNow, lastRun)
         }

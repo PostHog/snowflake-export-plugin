@@ -1,7 +1,7 @@
 {
     "name": "@posthog/snowflake-export-plugin",
     "private": true,
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "Export PostHog events into Snowflake",
     "devDependencies": {
         "@posthog/plugin-contrib": "^0.0.5",

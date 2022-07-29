@@ -508,7 +508,7 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
             }
         }
 
-        const { account, username, password, dbschema, table, stage, database, role, warehouse } = config
+        const { account, username, password, dbschema, table, stage, database, role, warehouse, copyCadenceMinutes } = config
 
         global.snowflake = new Snowflake({
             account,
@@ -521,6 +521,8 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
             warehouse,
             specifiedRole: role,
         })
+        const parsedCopyCadenceMinutes = parseInt(copyCadenceMinutes)
+        global.copyCadenceMinutes = parsedCopyCadenceMinutes > 0 ? copyCadenceMinutes : 10
 
         await global.snowflake.createTableIfNotExists(exportTableColumns)
 
@@ -617,8 +619,7 @@ async function copyIntoSnowflake({ cache, storage, global, jobs, config }: Meta<
         console.log('Files staged for copy:', filesStagedForCopy)
     }
     const lastRun = await cache.get('lastRun', null)
-    const copyCadenceMinutes = parseInt(config.copyCadenceMinutes) || 10
-    const maxTime = copyCadenceMinutes * 60 * 1000
+    const maxTime = global.copyCadenceMinutes * 60 * 1000
     const timeNow = new Date().getTime()
     if (!force && lastRun && timeNow - Number(lastRun) < maxTime) {
         if (global.debug) {

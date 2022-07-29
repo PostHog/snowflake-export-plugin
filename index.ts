@@ -618,9 +618,9 @@ async function copyIntoSnowflake({ cache, storage, global, jobs, config }: Meta<
     }
     const lastRun = await cache.get('lastRun', null)
     const copyCadenceMinutes = parseInt(config.copyCadenceMinutes) || 10
-    const MAX_TIME = copyCadenceMinutes * 60 * 1000
+    const maxTime = copyCadenceMinutes * 60 * 1000
     const timeNow = new Date().getTime()
-    if (!force && lastRun && timeNow - Number(lastRun) < MAX_TIME) {
+    if (!force && lastRun && timeNow - Number(lastRun) < maxTime) {
         if (global.debug) {
             console.log('Skipping COPY INTO', timeNow, lastRun)
         }

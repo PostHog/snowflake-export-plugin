@@ -1,5 +1,5 @@
 {
-    "name": "Snowflake Export Plugin",
+    "name": "Snowflake Export",
     "url": "https://github.com/posthog/snowflake-export-plugin",
     "description": "Export PostHog events into Snowflake",
     "main": "index.ts",

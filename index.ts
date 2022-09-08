@@ -16,6 +16,7 @@ interface SnowflakePluginInput {
         parsedBucketPath: string
         forceCopy: boolean
         debug: boolean
+        copyCadenceMinutes: number
     }
     config: {
         account: string
@@ -464,7 +465,6 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
                 return
             }
             try {
-                console.log('Retrying COPY INTO operation')
                 await global.snowflake.copyIntoTableFromStage(
                     payload.filesStagedForCopy,
                     global.purgeEventsFromStage,
@@ -486,6 +486,7 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
                 )
             }
         },
+        copyIntoSnowflakeJob: async (_, meta) => await copyIntoSnowflake(meta)
     },
 
     async setupPlugin(meta) {
@@ -522,7 +523,7 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
             specifiedRole: role,
         })
         const parsedCopyCadenceMinutes = parseInt(copyCadenceMinutes)
-        global.copyCadenceMinutes = parsedCopyCadenceMinutes > 0 ? copyCadenceMinutes : 10
+        global.copyCadenceMinutes = parsedCopyCadenceMinutes > 0 ? parsedCopyCadenceMinutes : 10
 
         await global.snowflake.createTableIfNotExists(exportTableColumns)
 
@@ -592,12 +593,15 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
                 await global.snowflake.uploadToGcs(rows, meta)
             }
         } catch (error) {
-            console.error(error.message || String(error))
+            console.error((error as Error).message || String(error))
             throw new RetryError()
         }
     },
 
     async runEveryMinute(meta) {
+        // Run copyIntoSnowflake more often to spread out load better
+        await meta.jobs.copyIntoSnowflakeJob({}).runIn(20, 'seconds')
+        await meta.jobs.copyIntoSnowflakeJob({}).runIn(40, 'seconds')
         await copyIntoSnowflake(meta)
     },
 }

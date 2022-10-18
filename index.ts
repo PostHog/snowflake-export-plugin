@@ -445,9 +445,6 @@ class Snowflake {
         ON_ERROR = 'skip_file'
         PURGE = ${purge};`
 
-        if (debug) {
-            console.log(querySqlText)
-        }
         await this.execute({
             sqlText: querySqlText,
         })
@@ -619,9 +616,6 @@ async function copyIntoSnowflake({ cache, storage, global, jobs, config }: Meta<
         return
     }
 
-    if (global.debug) {
-        console.log('Files staged for copy:', filesStagedForCopy)
-    }
     const lastRun = await cache.get('lastRun', null)
     const maxTime = global.copyCadenceMinutes * 60 * 1000
     const timeNow = new Date().getTime()
@@ -655,7 +649,7 @@ async function copyIntoSnowflake({ cache, storage, global, jobs, config }: Meta<
                     `Failed to copy ${String(filesStagedForCopy)} from object storage into Snowflake. Retrying in 3s.`
                 )
             }
-        } 
+        }
 
         await jobs
             .retryCopyIntoSnowflake({ retriesPerformedSoFar: 0, filesStagedForCopy: chunkStagedForCopy })

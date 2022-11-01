@@ -109,20 +109,22 @@ const TABLE_SCHEMA = [
 const CSV_FIELD_DELIMITER = '|$|'
 const FILES_STAGED_KEY = '_files_staged_for_copy_into_snowflake'
 
-function transformEventToRow(fullEvent: PluginEvent): TableRow {
-    const { event, properties, $set, $set_once, distinct_id, team_id, site_url, now, sent_at, uuid, ...rest } =
+// NOTE: we patch the Event type with an elements property as it is not in the
+// one imported from the scaffolding. The original assumption was that there
+// would be an $elements property in `properties`, but in reality this isn't
+// what the plugin server sends to `exportEvents`. Rather, it sends something
+// that is similar to a `PluginEvent`, but without $elements in `properties` and
+// instead it has already been moved to the top level as `elements`.
+// TODO: add elements to `PluginEvent` within scaffolding, or use a different
+// type
+type PluginEventWithElements = PluginEvent & { elements: { [key: string]: any }[] }
+
+function transformEventToRow(fullEvent: PluginEventWithElements): TableRow {
+    const { event, elements, properties, $set, $set_once, distinct_id, team_id, site_url, now, sent_at, uuid, ...rest } =
         fullEvent
     const ip = properties?.['$ip'] || fullEvent.ip
     const timestamp = fullEvent.timestamp || properties?.timestamp || now || sent_at
     let ingestedProperties = properties
-    let elements = []
-
-    // only move prop to elements for the $autocapture action
-    if (event === '$autocapture' && properties?.['$elements']) {
-        const { $elements, ...props } = properties
-        ingestedProperties = props
-        elements = $elements
-    }
 
     return {
         event,
@@ -133,7 +135,7 @@ function transformEventToRow(fullEvent: PluginEvent): TableRow {
         timestamp,
         uuid: uuid!,
         properties: JSON.stringify(ingestedProperties || {}),
-        elements: JSON.stringify(elements || []),
+        elements: JSON.stringify(elements ?? properties?.$elements ?? []),
         people_set: JSON.stringify($set || {}),
         people_set_once: JSON.stringify($set_once || {}),
     }
@@ -462,13 +464,14 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
                 return
             }
             try {
+                console.error(global.snowflake)
                 await global.snowflake.copyIntoTableFromStage(
                     payload.filesStagedForCopy,
                     global.purgeEventsFromStage,
                     global.forceCopy,
                     global.debug
                 )
-            } catch {
+            } catch (error: Error) {
                 const nextRetrySeconds = 2 ** payload.retriesPerformedSoFar * 3
                 await jobs
                     .retryCopyIntoSnowflake({
@@ -479,7 +482,8 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
                 console.error(
                     `Failed to copy ${String(
                         payload.filesStagedForCopy
-                    )} from object storage into Snowflake. Retrying in ${nextRetrySeconds}s.`
+                    )} from object storage into Snowflake. Retrying in ${nextRetrySeconds}s.`,
+                    error.stack
                 )
             }
         },
@@ -565,7 +569,7 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
         try {
             // prevent some issues with plugin reloads
             await copyIntoSnowflake(meta, true)
-        } catch {}
+        } catch { }
         await global.snowflake.clear()
     },
 
@@ -574,8 +578,7 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
         const rows = events.filter((event) => !global.eventsToIgnore.has(event.event.trim())).map(transformEventToRow)
         if (rows.length) {
             console.info(
-                `Saving batch of ${rows.length} event${rows.length !== 1 ? 's' : ''} to Snowflake stage "${
-                    config.stage
+                `Saving batch of ${rows.length} event${rows.length !== 1 ? 's' : ''} to Snowflake stage "${config.stage
                 }"`
             )
         } else {
@@ -644,9 +647,10 @@ async function copyIntoSnowflake({ cache, storage, global, jobs, config }: Meta<
 
                 // if we succeed, go to the next chunk, else we'll enqueue a retry below
                 continue
-            } catch {
+            } catch (error: Error) {
                 console.error(
-                    `Failed to copy ${String(filesStagedForCopy)} from object storage into Snowflake. Retrying in 3s.`
+                    `Failed to copy ${String(filesStagedForCopy)} from object storage into Snowflake. Retrying in 3s.`,
+                    error.stack
                 )
             }
         }

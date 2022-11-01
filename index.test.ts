@@ -85,15 +85,27 @@ test("handles events", async () => {
             site_url: "https://app.posthog.com",
             team_id: 1,
             now: "2020-01-01T01:01:01Z"
+        },
+        {
+            event: "$autocapture",
+            distinct_id: "autocapture",
+            ip: "10.10.10.10",
+            site_url: "https://app.posthog.com",
+            team_id: 1,
+            now: "2020-01-01T01:01:01Z",
+            properties: {},
+            elements: [{ some: "element" }]
         }
     ]
     const db = createSnowflakeMock(snowflakeAccount)
 
     await snowflakePlugin.setupPlugin?.(meta)
+
     for (let i = 0; i < 3; i++) { // to have >1 files to copy over
         await cache.expire('lastRun', 0)
-        await snowflakePlugin.exportEvents?.(events, meta)
+        await snowflakePlugin.exportEvents?.([events[i]], meta)
     }
+
     await snowflakePlugin.runEveryMinute?.(meta)
     await snowflakePlugin.teardownPlugin?.(meta)
 
@@ -111,8 +123,68 @@ test("handles events", async () => {
         return (response.Body || "").toString('utf8')
     }))
 
-    expect(csvStrings.join()).toContain("123")
-    expect(csvStrings.join()).toContain("456")
+    const columns = [
+        'uuid',
+        'event',
+        'properties',
+        'elements',
+        'people_set',
+        'people_set_once',
+        'distinct_id',
+        'team_id',
+        'ip',
+        'site_url',
+        'timestamp',
+    ]
+
+    // Get just the data rows, ignoring the header row
+    const cvsRows = csvStrings.sort().flatMap(csvString => csvString.split("\n").slice(1))
+
+    const exportedEvents = cvsRows.map(row =>
+        Object.fromEntries(row.split("|$|").map((value, index) => [columns[index], value]))
+    )
+
+    expect(exportedEvents).toEqual([
+        {
+            "distinct_id": "autocapture",
+            "elements": "[{\"some\":\"element\"}]",
+            "event": "$autocapture",
+            "ip": "10.10.10.10",
+            "people_set": "{}",
+            "people_set_once": "{}",
+            "properties": "{}",
+            "site_url": "https://app.posthog.com",
+            "team_id": "1",
+            "timestamp": "2020-01-01T01:01:01Z",
+            "uuid": "",
+        },
+        {
+            "distinct_id": "456",
+            "elements": "[]",
+            "event": "events",
+            "ip": "10.10.10.10",
+            "people_set": "{}",
+            "people_set_once": "{}",
+            "properties": "{}",
+            "site_url": "https://app.posthog.com",
+            "team_id": "1",
+            "timestamp": "2020-01-01T01:01:01Z",
+            "uuid": "",
+        },
+        {
+            "distinct_id": "123",
+            "elements": "[]",
+            "event": "some",
+            "ip": "10.10.10.10",
+            "people_set": "{}",
+            "people_set_once": "{}",
+            "properties": "{}",
+            "site_url": "https://app.posthog.com",
+            "team_id": "1",
+            "timestamp": "2020-01-01T01:01:01Z",
+            "uuid": "",
+        },
+    ])
 })
 
 test("handles > 1k files", async () => {

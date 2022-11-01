@@ -10,14 +10,14 @@ jobs:
         steps:
             - uses: actions/checkout@v3
 
-            - uses: actions/setup-node@v1
+            - uses: actions/setup-node@v3
               with:
                   # Keep in sync with the plugin-server node version
                   node-version: '16.x'
 
             - run: docker-compose up -d
 
-            - uses: actions/cache@v2
+            - uses: actions/cache@v3
               with:
                   path: node_modules
                   key: ${{ runner.os }}-modules-${{ hashFiles('yarn.lock') }}
@@ -27,7 +27,7 @@ jobs:
             - run: yarn test
 
             - name: Upload code coverage results
-              uses: actions/upload-artifact@v2
+              uses: actions/upload-artifact@v3
               if: always()
               with:
                   name: coverage

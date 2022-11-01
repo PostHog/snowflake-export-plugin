@@ -481,7 +481,8 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
                 console.error(
                     `Failed to copy ${String(
                         payload.filesStagedForCopy
-                    )} from object storage into Snowflake. Retrying in ${nextRetrySeconds}s.`,)
+                    )} from object storage into Snowflake. Retrying in ${nextRetrySeconds}s.`
+                )
             }
         },
         copyIntoSnowflakeJob: async (_, meta) => await copyIntoSnowflake(meta)
@@ -646,7 +647,7 @@ async function copyIntoSnowflake({ cache, storage, global, jobs, config }: Meta<
                 continue
             } catch {
                 console.error(
-                    `Failed to copy ${String(filesStagedForCopy)} from object storage into Snowflake. Retrying in 3s.`,
+                    `Failed to copy ${String(filesStagedForCopy)} from object storage into Snowflake. Retrying in 3s.`
                 )
             }
         }

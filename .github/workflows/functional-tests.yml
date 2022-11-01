@@ -24,7 +24,14 @@ jobs:
 
             - run: yarn
 
-            - run: yarn test
+            - run: |
+                  # Wait for LocalStack to be ready
+                  until $(curl --output /dev/null --silent --head --fail http://localhost:4566); do
+                      printf 'Waiting for LocalStack to be ready...'
+                      sleep 1
+                  done
+
+                  yarn test
 
             - name: Upload code coverage results
               uses: actions/upload-artifact@v3

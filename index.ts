@@ -464,14 +464,13 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
                 return
             }
             try {
-                console.error(global.snowflake)
                 await global.snowflake.copyIntoTableFromStage(
                     payload.filesStagedForCopy,
                     global.purgeEventsFromStage,
                     global.forceCopy,
                     global.debug
                 )
-            } catch (error: Error) {
+            } catch {
                 const nextRetrySeconds = 2 ** payload.retriesPerformedSoFar * 3
                 await jobs
                     .retryCopyIntoSnowflake({
@@ -482,9 +481,7 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
                 console.error(
                     `Failed to copy ${String(
                         payload.filesStagedForCopy
-                    )} from object storage into Snowflake. Retrying in ${nextRetrySeconds}s.`,
-                    error.stack
-                )
+                    )} from object storage into Snowflake. Retrying in ${nextRetrySeconds}s.`,)
             }
         },
         copyIntoSnowflakeJob: async (_, meta) => await copyIntoSnowflake(meta)
@@ -647,10 +644,9 @@ async function copyIntoSnowflake({ cache, storage, global, jobs, config }: Meta<
 
                 // if we succeed, go to the next chunk, else we'll enqueue a retry below
                 continue
-            } catch (error: Error) {
+            } catch {
                 console.error(
                     `Failed to copy ${String(filesStagedForCopy)} from object storage into Snowflake. Retrying in 3s.`,
-                    error.stack
                 )
             }
         }

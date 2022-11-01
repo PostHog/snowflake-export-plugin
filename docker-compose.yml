@@ -7,12 +7,10 @@ services:
       - "4566:4566"  # LocalStack Edge Proxy
     environment:
       - DEBUG=${DEBUG-}
-      - DATA_DIR=${DATA_DIR-}
-      - HOST_TMP_FOLDER=${TMPDIR:-/tmp/}localstack
       - DOCKER_HOST=unix:///var/run/docker.sock
       - SERVICES=s3
     volumes:
-      - "${TMPDIR:-/tmp}/localstack:/tmp/localstack"
+      - "${LOCALSTACK_VOLUME_DIR:-./volume}:/var/lib/localstack"
       - "/var/run/docker.sock:/var/run/docker.sock"
   redis:
     image: redis:6.2.6-bullseye

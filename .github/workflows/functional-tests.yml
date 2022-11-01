@@ -24,10 +24,11 @@ jobs:
 
             - run: yarn
 
-            - run: |
+            - name: Functional tests
+              run: |
                   # Wait for LocalStack to be ready
-                  until $(curl --output /dev/null --silent --head --fail http://localhost:4566); do
-                      printf 'Waiting for LocalStack to be ready...'
+                  until $(curl http://localhost:4566); do
+                      echo 'Waiting for LocalStack to be ready...'
                       sleep 1
                   done
 

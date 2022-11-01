@@ -10,18 +10,37 @@ jobs:
         steps:
             - uses: actions/checkout@v3
 
-            - uses: actions/setup-node@v1
+            - uses: actions/setup-node@v3
               with:
                   # Keep in sync with the plugin-server node version
-                  node-version: '16.x'
+                  node-version: '18.x'
 
             - run: docker-compose up -d
 
-            - uses: actions/cache@v2
+            - uses: actions/cache@v3
               with:
                   path: node_modules
                   key: ${{ runner.os }}-modules-${{ hashFiles('yarn.lock') }}
+                  restore-keys: |
+                      ${{ runner.os }}-modules-
 
             - run: yarn
+              if: steps.cache-primes.outputs.cache-hit != 'true'
 
-            - uses: ArtiomTr/jest-coverage-report-action@v2
+            - name: Wait for dependencies
+              run: |
+                  # Wait for LocalStack to be ready
+                  until curl http://localhost:4566; do
+                      echo ''
+                      echo 'Waiting for LocalStack to be ready...'
+                      sleep 1
+                  done
+
+            - run: yarn test
+
+            - name: Upload code coverage results
+              uses: actions/upload-artifact@v3
+              if: always()
+              with:
+                  name: coverage
+                  path: coverage/

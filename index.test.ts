@@ -7,7 +7,7 @@ import { setupServer } from "msw/node"
 import { rest } from "msw"
 import zlib from "zlib"
 
-jest.setTimeout(50000)
+jest.setTimeout(5000)
 
 test("handles events", async () => {
     // Checks for the happy path
@@ -36,7 +36,8 @@ test("handles events", async () => {
     const s3 = new S3()
     await s3.createBucket({ Bucket: bucketName }).promise()
 
-    const meta = {
+    let meta = {}
+    Object.assign(meta, {
         attachments: {}, config: {
             account: snowflakeAccount,
             username: "username",
@@ -60,17 +61,13 @@ test("handles events", async () => {
             forceCopy: 'Yes' as const,
             debug: 'ON' as const,
         },
-        jobs: { retryCopyIntoSnowflake: async (payload) => { 
-            await snowflakePlugin.copyIntoTableFromStage(payload) 
-            return jest.fn()
-        } 
-    },
+        jobs: createJobs(snowflakePlugin.jobs)(meta),
         cache: cache,
         storage: storage,
         // Cast to any, as otherwise we don't match plugin call signatures
         global: {} as any,
         geoip: {} as any
-    }
+    })
 
     const events = [
         {
@@ -88,15 +85,27 @@ test("handles events", async () => {
             site_url: "https://app.posthog.com",
             team_id: 1,
             now: "2020-01-01T01:01:01Z"
+        },
+        {
+            event: "$autocapture",
+            distinct_id: "autocapture",
+            ip: "10.10.10.10",
+            site_url: "https://app.posthog.com",
+            team_id: 1,
+            now: "2020-01-01T01:01:01Z",
+            properties: {},
+            elements: [{ some: "element" }]
         }
     ]
     const db = createSnowflakeMock(snowflakeAccount)
 
     await snowflakePlugin.setupPlugin?.(meta)
+
     for (let i = 0; i < 3; i++) { // to have >1 files to copy over
         await cache.expire('lastRun', 0)
-        await snowflakePlugin.exportEvents?.(events, meta)
+        await snowflakePlugin.exportEvents?.([events[i]], meta)
     }
+
     await snowflakePlugin.runEveryMinute?.(meta)
     await snowflakePlugin.teardownPlugin?.(meta)
 
@@ -114,8 +123,68 @@ test("handles events", async () => {
         return (response.Body || "").toString('utf8')
     }))
 
-    expect(csvStrings.join()).toContain("123")
-    expect(csvStrings.join()).toContain("456")
+    const columns = [
+        'uuid',
+        'event',
+        'properties',
+        'elements',
+        'people_set',
+        'people_set_once',
+        'distinct_id',
+        'team_id',
+        'ip',
+        'site_url',
+        'timestamp',
+    ]
+
+    // Get just the data rows, ignoring the header row
+    const cvsRows = csvStrings.sort().flatMap(csvString => csvString.split("\n").slice(1))
+
+    const exportedEvents = cvsRows.map(row =>
+        Object.fromEntries(row.split("|$|").map((value, index) => [columns[index], value]))
+    )
+
+    expect(exportedEvents).toEqual([
+        {
+            "distinct_id": "autocapture",
+            "elements": "[{\"some\":\"element\"}]",
+            "event": "$autocapture",
+            "ip": "10.10.10.10",
+            "people_set": "{}",
+            "people_set_once": "{}",
+            "properties": "{}",
+            "site_url": "https://app.posthog.com",
+            "team_id": "1",
+            "timestamp": "2020-01-01T01:01:01Z",
+            "uuid": "",
+        },
+        {
+            "distinct_id": "456",
+            "elements": "[]",
+            "event": "events",
+            "ip": "10.10.10.10",
+            "people_set": "{}",
+            "people_set_once": "{}",
+            "properties": "{}",
+            "site_url": "https://app.posthog.com",
+            "team_id": "1",
+            "timestamp": "2020-01-01T01:01:01Z",
+            "uuid": "",
+        },
+        {
+            "distinct_id": "123",
+            "elements": "[]",
+            "event": "some",
+            "ip": "10.10.10.10",
+            "people_set": "{}",
+            "people_set_once": "{}",
+            "properties": "{}",
+            "site_url": "https://app.posthog.com",
+            "team_id": "1",
+            "timestamp": "2020-01-01T01:01:01Z",
+            "uuid": "",
+        },
+    ])
 })
 
 test("handles > 1k files", async () => {
@@ -125,7 +194,8 @@ test("handles > 1k files", async () => {
     const snowflakeAccount = uuid4()
 
     const snowflakeMock = jest.fn()
-    const meta = {
+    let meta = {}
+    Object.assign(meta, {
         attachments: {}, config: {
             account: snowflakeAccount,
             username: "username",
@@ -149,32 +219,42 @@ test("handles > 1k files", async () => {
             forceCopy: 'Yes' as const,
             debug: 'ON' as const,
         },
-        jobs: { retryCopyIntoSnowflake: () => ({ runIn: snowflakeMock } )},
+        jobs: createJobs(snowflakePlugin.jobs)(meta),
         cache: cache,
         storage: storage,
         // Cast to any, as otherwise we don't match plugin call signatures
-        global: {snowflake: {copyIntoTableFromStage: snowflakeMock}} as any,
+        global: { snowflake: { copyIntoTableFromStage: snowflakeMock } } as any,
         geoip: {} as any
-    }
+    })
 
     await storage.set('_files_staged_for_copy_into_snowflake', Array(2100).fill('file'))
     await cache.expire('lastRun', 0)
-    await snowflakePlugin.runEveryMinute(meta) 
+    await snowflakePlugin.runEveryMinute(meta)
 
-   expect(snowflakeMock.mock.calls.length).toBe(42)
+    expect(snowflakeMock.mock.calls.length).toBe(42)
 
 })
+
+const createJob = (job: (payload, meta) => null) => (meta: any) => (payload: any) => ({
+    runIn: async (runIn: number, unit: string) => {
+        await new Promise((resolve) => setTimeout(resolve, runIn))
+        await job(payload, meta)
+    }
+})
+
+const createJobs = (jobs: any) => (meta: any) => Object.fromEntries(Object.entries(jobs).map(([jobName, jobFn]) => [jobName, createJob(jobFn)(meta)]))
 
 
 // Use fake timers so we can better control e.g. backoff/retry code.
 // Use legacy fake timers. With modern timers there seems to be little feedback
 // on fails due to test timeouts.
 beforeEach(() => {
-    jest.useFakeTimers("legacy")
+    jest.useFakeTimers({ advanceTimers: 30 })
 })
 
 afterEach(() => {
     jest.runOnlyPendingTimers()
+    jest.clearAllTimers()
     jest.useRealTimers()
 })
 
@@ -267,7 +347,7 @@ const createSnowflakeMock = (accountName: string) => {
         //
         //  1. POST your SQL query up to the API, the resulting resource
         //     identified via a query id. However, we don't actually need to do
-        //     anything explicitly with this id, rather we use we...
+        //     anything explicitly with this id, rather we...
         //  2. use the getResultUrl to fetch the results of the query
         //
         // TODO: handle case when query isn't complete on requesting getResultUrl

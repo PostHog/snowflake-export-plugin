@@ -24,4 +24,11 @@ jobs:
 
             - run: yarn
 
-            - uses: ArtiomTr/jest-coverage-report-action@v2
+            - run: yarn test
+
+            - name: Upload code coverage results
+              uses: actions/upload-artifact@v2
+              if: always()
+              with:
+                  name: coverage
+                  path: coverage/

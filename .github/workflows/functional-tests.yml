@@ -25,6 +25,7 @@ jobs:
                       ${{ runner.os }}-modules-
 
             - run: yarn
+              if: steps.cache-primes.outputs.cache-hit != 'true'
 
             - name: Wait for dependencies
               run: |

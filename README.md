@@ -36,7 +36,7 @@ If you're exporting from PostHog Cloud, do **NOT set any IP whitelist/blacklist*
 
 1. Create a new GCS bucket.
 2. Follow [this Snowflake guide on GCS](https://docs.snowflake.com/en/user-guide/data-load-gcs-config.html) to create a storage integration and generate a user for Snowflake to use when accessing your bucket. Make sure not to skip over any part of the guide!
-3. Download the service account credentials JSON file and upload it in the configuration step of this plugin.
+3. [Download the service account credentials JSON file](https://developers.google.com/workspace/guides/create-credentials#service-account) and upload it in the configuration step of this plugin.
 
 ## Troubleshooting
 

@@ -60,6 +60,7 @@ function waitFor(millSeconds) {
   });
 }
 
+
 /**
  * Util function to return a promise which is resolved or times out in provided milliseconds
  *  
@@ -141,7 +142,14 @@ interface RetryCopyIntoJobPayload {
     filesStagedForCopy: string[]
 }
 
-const TABLE_SCHEMA = [
+interface SnowFlakeColumn {
+    name: string
+    type: string
+}
+
+type SnowFlakeTableSchema = SnowFlakeColumn[]
+
+const TABLE_SCHEMA: SnowFlakeTableSchema = [
     { name: 'uuid', type: 'STRING' },
     { name: 'event', type: 'STRING' },
     { name: 'properties', type: 'VARIANT' },
@@ -213,12 +221,11 @@ function generateCsvString(events: TableRow[]): string {
         'site_url',
         'timestamp',
     ]
-    const csvHeader = columns.join(',')
+    const csvHeader = columns.join(CSV_FIELD_DELIMITER)
     const csvRows: string[] = [csvHeader]
-    for (let i = 0; i < events.length; ++i) {
-        const currentEvent = events[i]
+    events.forEach((currentEvent) => { 
         csvRows.push(columns.map((column) => (currentEvent[column] || '').toString()).join(CSV_FIELD_DELIMITER))
-    }
+    })
     return csvRows.join('\n')
 }
 

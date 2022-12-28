@@ -48,6 +48,9 @@ interface SnowflakePluginInput {
 
 /**
  * Util function to return a promise which is resolved in provided milliseconds
+ * 
+ * @param millSeconds milliseconds to wait before resolving
+ * @returns
  */
 function waitFor(millSeconds) {
   return new Promise((resolve, reject) => {
@@ -57,9 +60,29 @@ function waitFor(millSeconds) {
   });
 }
 
-async function retryPromiseWithDelay(promise, nthTry, delayTime) {
+/**
+ * Util function to return a promise which is resolved or times out in provided milliseconds
+ *  
+ * @param prom promise to be resolved 
+ * @param time timeout in milliseconds 
+ * @returns 
+ */
+const timeout = (prom, time) =>
+	Promise.race([prom, new Promise((_r, rej) => setTimeout(rej, time))]);
+
+/**
+ * Util function to retry a promise with a delay between retries
+ * as well as timeouts for each retry
+ * 
+ * @param promise promise to be resolved
+ * @param nthTry number of times to retry
+ * @param delayTime delay between retries in milliseconds
+ * @param timeoutTime timeout for each retry in milliseconds
+ * @returns
+ */  
+async function retryPromiseWithDelay(promise, nthTry, delayTime, timeoutTime) {
   try {
-    const res = await promise;
+    const res = await timeout(promise, timeoutTime);
     return res;
   } catch (e) {
     if (nthTry <= 1) {
@@ -364,7 +387,7 @@ class Snowflake {
                                 resolve(conn.getId())
                             }
                         })
-                    ), 5, 5)
+                    ), 5, 5000, 5000)
 
                     return connection
                 },

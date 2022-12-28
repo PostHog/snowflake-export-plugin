@@ -62,7 +62,7 @@ async function retryPromiseWithDelay(promise, nthTry, delayTime) {
     const res = await promise;
     return res;
   } catch (e) {
-    if (nthTry === 1) {
+    if (nthTry <= 1) {
       return Promise.reject(e);
     }
     console.log('retrying', nthTry, 'time');

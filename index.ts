@@ -364,7 +364,7 @@ class Snowflake {
                                 resolve(conn.getId())
                             }
                         })
-                    ), 5, 5)
+                    ), 5, 5000)
 
                     return connection
                 },

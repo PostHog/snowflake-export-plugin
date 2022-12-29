@@ -80,7 +80,7 @@ const timeout = (prom, time) =>
  * @param timeoutTime timeout for each retry in milliseconds
  * @returns
  */  
-async function retryPromiseWithDelay(promise, nthTry, delayTime, timeoutTime) {
+async function retryPromiseWithDelayAndTimeout(promise, nthTry, delayTime, timeoutTime) {
   try {
     const res = await timeout(promise, timeoutTime);
     return res;
@@ -91,7 +91,7 @@ async function retryPromiseWithDelay(promise, nthTry, delayTime, timeoutTime) {
     console.log('retrying', nthTry, 'time');
     // wait for delayTime amount of time before calling this method again
     await waitFor(delayTime);
-    return retryPromiseWithDelay(promise, nthTry - 1, delayTime);
+    return retryPromiseWithDelayAndTimeout(promise, nthTry - 1, delayTime, timeoutTime);
   }
 }
 
@@ -378,7 +378,7 @@ class Snowflake {
                         ...roleConfig,
                     })
 
-                    await retryPromiseWithDelay(new Promise<string>((resolve, reject) =>
+                    await retryPromiseWithDelayAndTimeout(new Promise<string>((resolve, reject) =>
                         connection.connect((err, conn) => {
                             if (err) {
                                 console.error('Error connecting to Snowflake: ' + err.message)

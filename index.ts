@@ -48,7 +48,6 @@ interface SnowflakePluginInput {
 
 /**
  * Util function to return a promise which is resolved in provided milliseconds
-
  * 
  * @param millSeconds milliseconds to wait before resolving
  * @returns
@@ -395,6 +394,7 @@ class Snowflake {
                             }
                         })
                     ), 5, 5000, 5000)
+                 
                     return connection
                 },
                 destroy: async (connection) => {

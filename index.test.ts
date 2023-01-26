@@ -235,6 +235,11 @@ test("handles > 1k files", async () => {
 
 })
 
+
+test("can handle large batches", async () => {
+    expect(snowflakePlugin!.getSettings()!.handlesLargeBatches).toBe(true)
+})
+
 const createJob = (job: (payload, meta) => null) => (meta: any) => (payload: any) => ({
     runIn: async (runIn: number, unit: string) => {
         await new Promise((resolve) => setTimeout(resolve, runIn))

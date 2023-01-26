@@ -577,6 +577,12 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
         await global.snowflake.clear()
     },
 
+    getSettings(_) {
+        return {
+            handlesLargeBatches: true
+        }
+    },
+
     async exportEvents(events, meta) {
         const { global, config } = meta
         const rows = events.filter((event) => !global.eventsToIgnore.has(event.event.trim())).map(transformEventToRow)

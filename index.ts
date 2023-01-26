@@ -516,6 +516,13 @@ const snowflakePlugin: Plugin<SnowflakePluginInput> = {
 
         const { account, username, password, dbschema, table, stage, database, role, warehouse, copyCadenceMinutes } = config
 
+        /**
+         * Temporary workaround for https://github.com/snowflakedb/snowflake-connector-nodejs/issues/349
+         * Keeps TLS encryption enabled, but disables the OCSP checks,
+         * that currently fail if their OCSP servers are unresponsive.
+         */
+        snowflake.configure({ insecureConnect: true })
+
         global.snowflake = new Snowflake({
             account,
             username,

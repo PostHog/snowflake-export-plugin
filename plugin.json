@@ -1,81 +1,16 @@
 {
     "name": "Snowflake Export",
-    "url": "https://github.com/posthog/snowflake-export-plugin",
-    "description": "Export PostHog events into Snowflake",
+    "url": "https://github.com/DubClub-win/snowflake-export-plugin",
+    "description": "Export PostHog events into S3 as CSV files for Snowflake",
     "main": "index.ts",
     "posthogVersion": ">=1.25.0",
     "config": [
-        {
-            "key": "account",
-            "name": "Snowflake account",
-            "type": "string",
-            "hint": "In the format of \"ab12345\" or \"ab12345.region.cloud\"",
-            "required": true
-        },
-        {
-            "key": "username",
-            "name": "Snowflake username",
-            "type": "string",
-            "required": true
-        },
-        {
-            "key": "password",
-            "name": "Snowflake password",
-            "type": "string",
-            "required": false,
-            "secret": true
-        },
-        {
-            "key": "database",
-            "name": "Snowflake database name",
-            "type": "string",
-            "required": true
-        },
-        {
-            "key": "dbschema",
-            "name": "Snowflake database schema",
-            "type": "string",
-            "default": "PUBLIC",
-            "required": true
-        },
-        {
-            "key": "table",
-            "name": "Snowflake table name",
-            "type": "string",
-            "required": true,
-            "hint": "Will be created if doesn't already exist."
-        },
-        {
-            "key": "warehouse",
-            "name": "Virtual warehouse to use for copying files",
-            "required": true,
-            "type": "string"
-        },
-        {
-            "key": "role",
-            "name": "Specify a role to access Snowflake with",
-            "type": "string",
-            "hint": "Optional, overrides the default role for the user."
-        },
-        {
-            "key": "copyCadenceMinutes",
-            "name": "How often (in minutes) data should be copied into Snowflake",
-            "type": "string",
-            "default": "10"
-        },
         {
             "key": "stageToUse",
             "name": "Stage type",
             "type": "choice",
             "required": true,
             "choices": ["S3", "GCS"]
-        },
-        {
-            "key": "stage",
-            "name": "Name to use for external stage",
-            "type": "string",
-            "required": true,
-            "hint": "Will be created if doesn't already exist."
         },
         {
             "key": "bucketName",
@@ -90,13 +25,6 @@
             "hint": "E.g. `posthog/exports/`",
             "type": "string",
             "default": ""
-        },
-        {
-            "key": "purgeFromStage",
-            "name": "Purge events from stage after copying?",
-            "type": "choice",
-            "choices": ["No", "Yes"],          
-            "default": "No"
         },
         {
             "key": "awsAccessKeyId",
@@ -145,27 +73,11 @@
             "hint": "Comma separated list of events to ignore"
         },
         {
-            "key": "retryCopyIntoOperations",
-            "name": "[ADVANCED] Retry failed COPY INTO operations?",
-            "type": "choice",
-            "choices": ["Yes", "No"],
-            "default": "Yes",
-            "hint": "**Do not change this option unless you really know what you're doing!**"
-        },
-        {
             "key": "debug",
             "name": "DEBUG",
             "type": "choice",
             "choices": ["ON", "OFF"],
             "default": "OFF",
-            "hint": "Advanced"
-        },
-        {
-            "key": "forceCopy",
-            "name": "Set `FORCE = true` when copying from the bucket?",
-            "type": "choice",
-            "choices": ["Yes", "No"],
-            "default": "No",
             "hint": "Advanced"
         }
     ]

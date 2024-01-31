@@ -76,4 +76,4 @@ Tests also run within GitHub Actions on PRs.
 
 ## Questions?
 
-### [Join the PostHog Users Slack community.](https://posthog.com/slack)
+### [Join the PostHog community.](https://posthog.com/questions)

@@ -1,5 +1,8 @@
 # Snowflake Export Plugin
 
+> **Warning**
+> This plugin has been deprecated in favor of our [Snowflake destination for batch exports](https://posthog.com/docs/cdp/batch-exports/snowflake).
+
 Export events to a Snowflake table regularly.
 
 :warning: If you have low volumes of data this can cause us to ship a high number of files to blob storage and for loading into Snowflake. This can translate into higher than usual billing because of blob storage api calls and the time it takes to list and load small files in Snowlfake.

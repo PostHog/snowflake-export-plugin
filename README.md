@@ -1,7 +1,7 @@
-# Snowflake Export Plugin
+> [!WARNING]
+> ## This plugin has been deprecated in favor of our [BigQuery destination for batch exports](https://posthog.com/docs/cdp/batch-exports/bigquery).
 
-> **Warning**
-> This plugin has been deprecated in favor of our [Snowflake destination for batch exports](https://posthog.com/docs/cdp/batch-exports/snowflake).
+# Snowflake Export Plugin
 
 Export events to a Snowflake table regularly.
 
